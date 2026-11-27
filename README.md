@@ -4,9 +4,10 @@
 
 ## 팀 인수인계
 
-1. `apps/sense-plus`에서 Windows는 `setup_windows.bat`를 한 번 실행한 뒤 `start_windows.bat`를 실행합니다. Python 3.11 또는 3.12가 필요합니다. Mac과 휴대폰 연결 절차는 [빠른 시작](apps/sense-plus/START_HERE_KO.txt)에 있습니다.
-2. PC 관제는 [127.0.0.1:8766](http://127.0.0.1:8766/), PC에서 여는 사용자 앱은 [127.0.0.1:8765](http://127.0.0.1:8765/)입니다. iPhone에서 처음 시험할 때는 [iPhone 인증서 설치와 연결](apps/sense-plus/README_KO.md#iphone-인증서-설치와-연결) 순서대로 진행합니다.
-3. 기본 설정은 영상·음성 연결 시험입니다. Windows에서 실제 장면 분석에 쓰는 Ollama, 한국어 STT·TTS 설정은 [모델 연동 규격](apps/sense-plus/docs/INTEGRATION.md#windows-로컬-모델)을 따릅니다.
+1. Python 3.11 또는 3.12를 준비하고 `apps/sense-plus`에서 Windows는 `setup_windows.bat`, Mac은 `setup_mac.command`를 한 번 실행합니다.
+2. **iPhone 연결 및 QR 표시**는 Windows `start_phone_windows.bat`, Mac `start_phone_mac.command`를 실행합니다. 이전 SENSE+가 켜져 있으면 그 터미널에서 `Ctrl+C`로 종료한 뒤 전환합니다. 시연 PC의 Wi-Fi IPv4를 입력하고 브라우저 주소창에 `http://127.0.0.1:8766/`을 입력합니다. [iPhone 인증서 설치와 연결](apps/sense-plus/README_KO.md#iphone-인증서-설치와-연결)
+3. **PC 단독 시험**은 `start_windows.bat` 또는 `start_mac.command`를 실행합니다. 사용자 앱 주소는 `http://127.0.0.1:8765/`입니다. 이 모드의 관제 화면에는 QR이 표시되지 않습니다.
+4. 기본 설정은 영상·음성 연결 시험입니다. Windows에서 실제 장면 분석에 쓰는 Ollama, 한국어 STT·TTS 설정은 [모델 연동 규격](apps/sense-plus/docs/INTEGRATION.md#windows-로컬-모델)을 따릅니다.
 
 수업에서 시연 PC의 QR로 연결할 iPhone에 필요한 공개 인증서를 받을 수 있습니다. [수업 시연용 `SENSE-test-root.cer` 다운로드](apps/sense-plus/docs/certificates/SENSE-test-root.cer?raw=true) · [한국어 설치 안내](apps/sense-plus/README_KO.md#iphone-인증서-설치와-연결)
 

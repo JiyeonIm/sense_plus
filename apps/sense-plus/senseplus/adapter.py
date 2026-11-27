@@ -70,14 +70,18 @@ def encode_jpeg(rgb: np.ndarray) -> str:
     return base64.b64encode(jpeg_bytes(rgb, max_size=(640, 480))).decode("ascii")
 
 
-def encode_wav(samples: np.ndarray, sample_rate: int) -> str:
+def wav_bytes(samples: np.ndarray, sample_rate: int) -> bytes:
     out = io.BytesIO()
     with wave.open(out, "wb") as wav:
         wav.setnchannels(1)
         wav.setsampwidth(2)
         wav.setframerate(sample_rate)
         wav.writeframes(samples.astype("<i2", copy=False).tobytes())
-    return base64.b64encode(out.getvalue()).decode("ascii")
+    return out.getvalue()
+
+
+def encode_wav(samples: np.ndarray, sample_rate: int) -> str:
+    return base64.b64encode(wav_bytes(samples, sample_rate)).decode("ascii")
 
 
 def read_question_pcm(value: str) -> np.ndarray:

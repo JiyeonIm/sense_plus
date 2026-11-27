@@ -10,8 +10,9 @@ function normalizePairingCode(code) {
 }
 
 export class SenseTransport extends EventTarget {
-  constructor() {
+  constructor({ answerAudioHttp = false } = {}) {
     super();
+    this._answerAudioHttp = answerAudioHttp;
     this._pairingCode = '';
     try { this._pairingCode = normalizePairingCode(sessionStorage.getItem(PAIRING_KEY)); }
     catch { /* Pairing can also remain in memory for this page. */ }
@@ -30,6 +31,7 @@ export class SenseTransport extends EventTarget {
   get sessionId() { return this._sessionId; }
   get health() { return this._health; }
   get hasPairingCode() { return Boolean(this._pairingCode); }
+  get usesHttpAnswerAudio() { return this._answerAudioHttp && this._health?.answer_audio_http === true; }
 
   setPairingCode(value) {
     this._pairingCode = normalizePairingCode(value);
@@ -94,6 +96,7 @@ export class SenseTransport extends EventTarget {
       const pairingCode = health.pairing_required ? this._pairingCode : '';
       if (health.pairing_required && !pairingCode) throw new PairingError(PAIRING_REQUIRED_MESSAGE);
       const headers = pairingCode ? {'X-Sense-Pairing': pairingCode} : {};
+      if (this.usesHttpAnswerAudio) headers['X-Sense-Answer-Audio'] = 'http';
       let session;
       try {
         session = await this._json('/api/sessions', { method: 'POST', body: '{}', headers }, null);
@@ -236,6 +239,31 @@ export class SenseTransport extends EventTarget {
     if (generation !== this._generation) throw new Error('종료된 연결의 응답이에요.');
     this._emit('state', response.state || response);
     return response;
+  }
+
+  async getAnswerAudio(resultId, signal) {
+    if (!this.connected || !this._sessionId || !/^[a-f0-9]{32}$/.test(resultId)) {
+      throw new Error('재생할 답변 음성이 없어요.');
+    }
+    const generation = this._generation;
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    if (signal?.aborted) abort();
+    else signal?.addEventListener('abort', abort, { once: true });
+    const timer = setTimeout(abort, 8000);
+    try {
+      const path = `/api/sessions/${encodeURIComponent(this._sessionId)}/audio/${resultId}.wav`;
+      const response = await fetch(path, {
+        headers: { Authorization: `Bearer ${this._token}` }, signal: controller.signal, cache: 'no-store',
+      });
+      if (!response.ok) throw new Error('답변 음성을 가져오지 못했어요.');
+      const bytes = await response.arrayBuffer();
+      if (generation !== this._generation) throw new Error('종료된 연결의 음성이에요.');
+      return bytes;
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
+    }
   }
 
   async _deleteSession(id, token) {

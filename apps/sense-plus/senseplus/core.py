@@ -20,7 +20,7 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
-from .adapter import AIAdapter, AdapterError, AnalysisResult, OUTPUT_RATE, create_adapter, encode_jpeg, encode_wav
+from .adapter import AIAdapter, AdapterError, AnalysisResult, OUTPUT_RATE, create_adapter, encode_jpeg, encode_wav, wav_bytes
 from .capture import CAPTURE_TIMEOUT, FrameStability, StableFrame, scene_changed, scene_thumbnail
 from .config import Config
 
@@ -97,6 +97,8 @@ class Session:
     task: asyncio.Task | None = None
     output_audio: asyncio.Queue = field(default_factory=lambda: asyncio.Queue(maxsize=2))
     flush_audio: Any = None
+    answer_audio_http: bool = False
+    latest_answer_wav: bytes | None = field(default=None, repr=False)
     closed: bool = False
 
     def touch(self) -> None:
@@ -194,10 +196,10 @@ class SessionManager:
         self.events.append({"seq": self.event_seq, "at": utc_now(), "event": kind, "session_id": session.session_id, "mode": session.mode, **allowed})
 
 
-    def create(self) -> Session:
+    def create(self, *, answer_audio_http: bool = False) -> Session:
         if len(self.sessions) >= self.config.max_sessions:
             raise SessionError("현재 연결 수가 많습니다. 사용하지 않는 창을 종료해 주세요.", 429)
-        item = Session(session_id=uuid.uuid4().hex, token=secrets.token_urlsafe(32))
+        item = Session(session_id=uuid.uuid4().hex, token=secrets.token_urlsafe(32), answer_audio_http=answer_audio_http)
         self.sessions[item.session_id] = item
         self.event("session.created", item)
         return item
@@ -266,6 +268,7 @@ class SessionManager:
         self._clear_output_audio(session)
 
     def _clear_output_audio(self, session: Session) -> None:
+        session.latest_answer_wav = None
         if session.flush_audio:
             session.flush_audio()
         while not session.output_audio.empty():
@@ -371,6 +374,7 @@ class SessionManager:
             raise SessionError("카메라 영상이 오래되어 분석을 보류했습니다. 화면 연결을 확인해 주세요.", 409)
 
     def _system_result(self, session: Session, text: str, source: str = "system") -> None:
+        session.latest_answer_wav = None
         session.latest_result = {
             "id": uuid.uuid4().hex,
             "turn_id": session.current_turn_id,
@@ -388,6 +392,18 @@ class SessionManager:
     def _publish(self, session: Session, generation: int, turn_id: str, result: AnalysisResult) -> None:
         if session.closed or generation != session.generation:
             return
+        session.latest_answer_wav = None
+        audio = result.audio
+        audio_source = "browser-tts"
+        if audio is not None:
+            if session.answer_audio_http:
+                if 0 < audio.size <= 20 * OUTPUT_RATE:
+                    session.latest_answer_wav = wav_bytes(audio, OUTPUT_RATE)
+                    audio_source = "http-wav"
+                else:
+                    audio = None
+            else:
+                audio_source = "webrtc"
         session.latest_result = {
             "id": uuid.uuid4().hex,
             "turn_id": turn_id,
@@ -398,14 +414,28 @@ class SessionManager:
             "mode": session.mode,
             "source": "ai",
             "scene_observation": session.mode == "scene" and session.guide_active,
-            "audio_available": result.audio is not None,
-            "audio_source": "webrtc" if result.audio is not None else "browser-tts",
-            "audio_provider": result.audio_provider or ("browser-tts" if result.audio is None else None),
+            "audio_available": audio is not None,
+            "audio_source": audio_source,
+            "audio_provider": "browser-tts" if audio is None else result.audio_provider,
         }
         session.last_error = None
         self.event("result.ai", session, source="ai", result_id=session.latest_result["id"], turn_id=turn_id, status=result.kind)
-        if result.audio is not None:
-            self._queue_audio(session, generation, result.audio)
+        if audio_source == "webrtc":
+            self._queue_audio(session, generation, audio)
+
+    def answer_audio(self, session: Session, result_id: str) -> bytes:
+        audio = session.latest_answer_wav
+        if audio is None or (session.latest_result or {}).get("id") != result_id:
+            raise SessionError("재생할 답변 음성을 찾을 수 없습니다.", 404)
+        if session.transport != "connected" or session.paused or session.scene_waiting_for_video or session.last_error:
+            session.latest_answer_wav = None
+            raise SessionError("현재 답변 음성을 재생할 수 없습니다.", 409)
+        try:
+            self._require_recent_video(session)
+        except SessionError:
+            session.latest_answer_wav = None
+            raise
+        return audio
 
     def _queue_audio(self, session: Session, generation: int, pcm: np.ndarray) -> None:
         self._clear_output_audio(session)
