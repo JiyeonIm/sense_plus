@@ -1,0 +1,140 @@
+:root {
+  font: 15px system-ui, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
+  color: #eaf0f5;
+  background: #111820;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+header {
+  min-height: 64px;
+  border-bottom: 1px solid #34424e;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4vw;
+}
+.brand { font-size: 25px; font-weight: 850; letter-spacing: -.04em; }
+.brand span { color: #f2d542; }
+.local, .muted, footer { color: #a8b8c5; font-size: 13px; }
+main { max-width: 1440px; margin: auto; padding: 26px 4vw; }
+.heading, .panelhead, .meterrow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+h1 { font-size: 30px; margin: 0; letter-spacing: -.03em; }
+h2 { font-size: 19px; margin: 0 0 8px; }
+.panelhead h2 { margin: 0; }
+p { margin: 6px 0; line-height: 1.55; }
+#status {
+  font-weight: 650;
+  border: 1px solid #506371;
+  border-radius: 6px;
+  padding: 9px 12px;
+}
+.pair, .metrics article, .panel {
+  border: 1px solid #344450;
+  border-radius: 10px;
+  background: #1a242e;
+  padding: 20px;
+  min-width: 0;
+}
+.pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 24px;
+  margin: 20px 0 16px;
+}
+.pair a { color: #f3d95c; font-size: 18px; overflow-wrap: anywhere; }
+.qr { display: block; background: white; border-radius: 6px; image-rendering: pixelated; }
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0 0 16px;
+}
+.metrics p { margin-top: 0; }
+.metrics strong {
+  display: block;
+  font-size: 28px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.metrics small { color: #acbdca; }
+.metrics .smallvalue { font-size: 22px; }
+.workspace { display: grid; grid-template-columns: 1.35fr 1fr; gap: 14px; margin-bottom: 16px; }
+.frame-meta { font-variant-numeric: tabular-nums; }
+.video {
+  background: #090d11;
+  aspect-ratio: 16 / 9;
+  display: grid;
+  place-items: center;
+  border: 1px solid #344450;
+  border-radius: 6px;
+  margin: 12px 0;
+  position: relative;
+  overflow: hidden;
+}
+.video img { width: 100%; height: 100%; object-fit: contain; position: absolute; inset: 0; }
+.video p { color: #a8b8c5; text-align: center; padding: 14px; }
+.meterrow { margin: 16px 0 4px; }
+#rmsText { font-variant-numeric: tabular-nums; }
+meter { width: 100%; height: 18px; accent-color: #f1d243; }
+#waveform {
+  display: block;
+  width: 100%;
+  height: 54px;
+  background: #111820;
+  border: 1px solid #344450;
+  border-radius: 6px;
+  margin: 4px 0 6px;
+}
+select, input[type="search"] {
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid #607280;
+  border-radius: 6px;
+  background: #111820;
+  color: #fff;
+  font: inherit;
+}
+.selectlabel { display: block; font-size: 13px; margin: 12px 0 5px; }
+button {
+  border: 1px solid #6b8191;
+  padding: 9px 14px;
+  border-radius: 6px;
+  color: #fff;
+  background: #293a48;
+  font: inherit;
+  cursor: pointer;
+}
+button:disabled { opacity: .55; cursor: default; }
+button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible {
+  outline: 3px solid #f1d243;
+  outline-offset: 3px;
+}
+dl { display: grid; grid-template-columns: 1fr 1fr; column-gap: 10px; margin: 12px 0; }
+dt, dd { margin: 0; border-bottom: 1px solid #344450; padding: 8px 0; overflow-wrap: anywhere; }
+dt { color: #b7c6d2; }
+dd { text-align: right; font-variant-numeric: tabular-nums; }
+.filters { display: grid; grid-template-columns: minmax(0, 420px) minmax(0, 180px); gap: 12px; margin: 12px 0; }
+.filters input, .filters select { display: block; margin-top: 5px; }
+.tablewrap { overflow: auto; max-height: 450px; margin-top: 12px; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; text-align: left; }
+th, td { border-bottom: 1px solid #344450; padding: 10px 9px; white-space: nowrap; }
+th { position: sticky; top: 0; background: #243440; color: #ccdae3; }
+tr.error td:nth-child(2) { color: #ff9e9e; }
+footer { padding: 12px 4vw 24px; }
+[hidden] { display: none !important; }
+@media (max-width: 780px) {
+  .workspace, .pair { grid-template-columns: 1fr; }
+  .metrics { grid-template-columns: 1fr 1fr; }
+  .metrics article, .panel { padding: 15px; }
+}
+@media (max-width: 440px) {
+  .filters { grid-template-columns: 1fr; }
+}

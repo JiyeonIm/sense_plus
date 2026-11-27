@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SENSE+ · 실시간 관제</title>
+  <link rel="stylesheet" href="/admin.css">
+  <script defer src="/admin.js"></script>
+</head>
+<body>
+  <header>
+    <div class="brand">SENSE<span>+</span></div>
+    <span class="local">PC 로컬 전용</span>
+  </header>
+  <main>
+    <div class="heading">
+      <h1>실시간 연결 관제</h1>
+      <span id="status" role="status">서버 확인 중</span>
+    </div>
+    <section class="pair" aria-labelledby="pairHeading">
+      <div>
+        <h2 id="pairHeading">사용자 웹앱 접속</h2>
+        <a id="userUrl" target="_blank" rel="noopener" hidden></a>
+        <p id="pairHint">연결 주소 확인 중</p>
+      </div>
+      <img id="pairQr" class="qr" alt="스마트폰 사용자 웹앱 접속 QR 코드" width="192" height="192" hidden>
+    </section>
+    <div class="metrics">
+      <article><p>등록 세션</p><strong id="sessions">0</strong></article>
+      <article><p>세션 영상 수신</p><strong id="frames">0</strong><small>프레임</small></article>
+      <article><p>세션 음성 수신</p><strong id="samples">0</strong><small>16 kHz 변환 샘플</small></article>
+      <article><p>AI 모델</p><strong class="smallvalue" id="ai">—</strong></article>
+    </div>
+    <div class="workspace">
+      <section class="panel">
+        <div class="panelhead">
+          <h2>수신 영상·음성</h2>
+          <label><input id="showFrame" type="checkbox"> 자동 미리보기</label>
+        </div>
+        <label class="selectlabel" for="session">확인할 세션</label>
+        <select id="session"><option value="">연결된 기기 없음</option></select>
+        <div class="video">
+          <img id="frame" alt="서버가 받은 카메라 영상" hidden>
+          <p id="frameMsg" role="status">영상 연결 대기 중</p>
+        </div>
+        <p id="videoMeta" class="muted frame-meta" hidden>자동 미리보기 · 약 1.3회/초 갱신</p>
+        <div class="meterrow">
+          <strong>질문 음성 레벨</strong>
+          <span id="rmsText">대기</span>
+        </div>
+        <meter id="rms" min="0" max="1" value="0" aria-label="수신 음성 RMS 비율"></meter>
+        <canvas id="waveform" width="480" height="64" role="img" aria-label="질문 음성 진폭 파형"></canvas>
+        <p class="muted">음성 질문 중 수신 진폭을 표시합니다. 음소거 중 전송된 무음도 수신량에 포함됩니다.</p>
+      </section>
+      <section class="panel">
+        <h2>세션 상세</h2>
+        <dl id="detail"><dt>연결 상태</dt><dd>연결 대기</dd></dl>
+        <p class="muted">영상·음성 도착차는 서버 수신 시각 기준입니다. AI 응답 시간은 서버 요청부터 응답까지입니다.</p>
+      </section>
+    </div>
+    <section class="panel events">
+      <div class="panelhead">
+        <h2>이벤트 로그</h2>
+        <button id="export" type="button">표시 로그 CSV</button>
+      </div>
+      <div class="filters">
+        <label>로그 검색<input type="search" id="search" placeholder="이벤트, 세션 ID, 질문 ID"></label>
+        <label>이벤트 유형
+          <select id="eventFilter">
+            <option value="">전체</option>
+            <option value="connection">연결</option>
+            <option value="media">영상·음성</option>
+            <option value="control">조작·질문</option>
+            <option value="analysis">AI·결과</option>
+            <option value="errors">오류</option>
+          </select>
+        </label>
+      </div>
+      <p class="muted">최근 400개 이벤트 메타데이터를 서버 메모리에 보관합니다.</p>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th scope="col">시간 (PC 현지)</th><th scope="col">이벤트</th><th scope="col">세션</th><th scope="col">모드</th><th scope="col">정보</th></tr></thead>
+          <tbody id="events"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+  <footer>SENSE+ · 통신 및 AI 연동 진단</footer>
+</body>
+</html>

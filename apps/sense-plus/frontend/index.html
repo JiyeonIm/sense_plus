@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#eae5d8">
+  <meta name="description" content="카메라와 음성으로 주변을 확인하는 SENSE+ 생활 보조 웹앱">
+  <title>SENSE+ · 주변 확인</title>
+  <script>
+    (() => {
+      const capturePairingCode = () => {
+        const prefix = '#pair=';
+        if (!location.hash.startsWith(prefix)) return;
+        const code = location.hash.slice(prefix.length);
+        try {
+          history.replaceState(history.state, '', location.pathname + location.search);
+          window.sensePairingFromQr = code;
+        } catch {
+          window.sensePairingFromQr = '';
+        }
+      };
+      capturePairingCode();
+      window.addEventListener('hashchange', capturePairingCode);
+    })();
+  </script>
+  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./panels.css">
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#guidePanel">안내와 조작으로 이동</a>
+  <svg class="icon-defs" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h15m-6-6 6 6-6 6"/></symbol>
+    <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 6h4l2-3h4l2 3h4a1 1 0 0 1 1 1v12H3V7a1 1 0 0 1 1-1Z"/><circle cx="12" cy="12" r="4"/></symbol>
+    <symbol id="i-switch" viewBox="0 0 24 24"><path d="M4 7a8 8 0 0 1 14-2l2 3M20 3v5h-5M20 17a8 8 0 0 1-14 2l-2-3M4 21v-5h5"/></symbol>
+    <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-4 0h8"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="m8 4 12 8-12 8Z"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="1"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+    <symbol id="i-volume" viewBox="0 0 24 24"><path d="m11 4-6 5H2v6h3l6 5ZM15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/></symbol>
+    <symbol id="i-muted" viewBox="0 0 24 24"><path d="m11 4-6 5H2v6h3l6 5Zm5 5 6 6m0-6-6 6"/></symbol>
+    <symbol id="i-repeat" viewBox="0 0 24 24"><path d="M4 10a8 8 0 1 1 1 8M4 4v6h6"/></symbol>
+    <symbol id="i-scene" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8" cy="8" r="1"/><path d="m3 17 6-6 4 4 3-3 5 5"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="7.5"/><path d="m16 16 5 5"/></symbol>
+    <symbol id="i-read" viewBox="0 0 24 24"><path d="M6 2h8l5 5v15H5V3a1 1 0 0 1 1-1Zm8 0v6h5M8 12h8m-8 4h6"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h3m4 0h9M4 17h9m4 0h3"/><rect x="7" y="4" width="4" height="6" rx="1"/><rect x="13" y="14" width="4" height="6" rx="1"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v.1"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="m10 14 4-4m-6 7-1 1a4.3 4.3 0 0 1-6-6l5-5a4.3 4.3 0 0 1 6 0m0 5a4.3 4.3 0 0 0 6 0l5-5a4.3 4.3 0 0 0-6-6l-1 1"/></symbol>
+    <symbol id="i-walk" viewBox="0 0 24 24"><circle cx="14" cy="3" r="2"/><path d="m7 21 4-8 3 3v6m-3-9 2-6 4 5 4 1M5 12l3-4 5-1"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="m12 3 10 18H2Zm0 6v5m0 3v.1"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></symbol>
+  </defs></svg>
+
+  <div class="app">
+    <header class="topbar">
+      <a class="wordmark" href="./" aria-label="SENSE Plus 처음 화면">SENSE<span aria-hidden="true">+</span></a>
+      <button class="icon-button settings-trigger" id="settingsTrigger" aria-haspopup="dialog"><svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg><span>설정</span></button>
+    </header>
+
+    <main class="workspace">
+      <section class="guide-panel" id="guidePanel" aria-labelledby="pageTitle" tabindex="-1">
+        <div class="hero">
+          <div class="hero-content">
+            <span class="example-label" id="resultDemoBadge" hidden>시연 예시</span>
+            <h1 id="pageTitle">주변 확인</h1>
+            <p class="intro" id="introText">멈춰서 주변을 비춰 주세요. 한 번 누르면 계속 확인해요.</p>
+          </div>
+        </div>
+
+        <div class="result-area" id="resultArea" hidden>
+          <div class="result-kicker"><svg class="icon" id="resultIcon" aria-hidden="true"><use href="#i-eye"/></svg><span id="resultLabel">현재 보이는 상황</span></div>
+          <h2 id="resultTitle"></h2>
+          <p id="resultBody"></p>
+          <p class="result-direction" id="resultDirection" hidden><span>안내</span><span id="resultDirectionText"></span></p>
+          <div class="listening-bars" id="listeningBars" aria-hidden="true" hidden><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+        </div>
+
+        <div class="service-notice" id="serviceNotice"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><p id="serviceNoticeText">연결 상태 확인 중</p></div>
+
+        <div class="demo-controls" id="demoControls" hidden>
+          <p>화면과 음성을 확인하는 예시예요. 실제 주변을 분석하지 않아요.</p>
+          <div class="segmented" role="group" aria-label="디자인 시연 장면 선택"><button data-scenario="door" aria-pressed="true">출입구</button><button data-scenario="obstacle" aria-pressed="false">장애물</button><button data-scenario="uncertain" aria-pressed="false">시야 불량</button></div>
+        </div>
+
+        <div class="primary-actions">
+          <div id="pairingPanel" class="pairing-panel" hidden><svg class="icon" aria-hidden="true"><use href="#i-link"/></svg><p>PC 관제 화면의 QR을 스캔해 주세요.</p></div>
+          <div class="main-buttons">
+            <button class="button button-primary connect-big" id="quickConnect" hidden><svg class="icon" aria-hidden="true"><use href="#i-camera"/></svg><span id="quickConnectLabel">카메라 다시 연결</span></button>
+            <button class="button button-primary main-action" id="guideAction"><svg class="icon" id="guideActionIcon" aria-hidden="true"><use href="#i-eye"/></svg><span id="guideActionLabel">주변 확인</span></button>
+            <button class="button button-voice" id="questionAction"><svg class="icon" id="questionActionIcon" aria-hidden="true"><use href="#i-mic"/></svg><span id="questionActionLabel">음성 질문</span></button>
+          </div>
+          <div class="session-actions" id="sessionActions" hidden><button class="button button-danger" id="stopAction"><svg class="icon" aria-hidden="true"><use href="#i-stop"/></svg>안내 종료</button><button class="button button-quiet" id="repeatAction" hidden><svg class="icon" aria-hidden="true"><use href="#i-repeat"/></svg>다시 듣기</button></div>
+        </div>
+        <p class="privacy-note" id="privacyNote">영상은 PC로, 음성은 질문할 때만 전송해요.</p>
+        <p class="status-message" id="statusMessage" role="status" aria-live="polite" aria-atomic="true"></p>
+
+        <details class="more-modes" id="moreModes">
+          <summary id="modeSummary">다른 기능</summary>
+          <div class="feature-modes" role="group" aria-label="다른 기능">
+            <button class="mode-button" data-mode="find" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-search"/></svg><span>물건 찾기</span></button>
+            <button class="mode-button" data-mode="read" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-read"/></svg><span>정보 읽기</span></button>
+          </div>
+        </details>
+        <button class="return-guide text-button" id="returnGuide" hidden>주변 확인으로 돌아가기</button>
+        <button class="button button-outline audio-resume" id="audioResume" hidden><svg class="icon"><use href="#i-volume"/></svg>음성 재생 허용</button>
+        <p class="safety-note">보행 판단에는 흰지팡이 등 평소 사용하는 보조수단을 함께 사용하세요.</p>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="settingsDialog" aria-labelledby="settingsTitle">
+    <form method="dialog" class="dialog-header"><h2 id="settingsTitle">설정</h2><button class="icon-button" value="close" aria-label="설정 닫기"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button></form>
+    <div class="dialog-content">
+      <label class="setting-row"><span><strong>고대비 화면</strong><small>글자와 배경을 더 선명하게</small></span><input id="contrastSetting" type="checkbox" role="switch"><span class="native-switch" aria-hidden="true"></span></label>
+      <fieldset class="setting-group"><legend>글자 크기</legend><div class="segmented"><label><input type="radio" name="textSize" value="normal" checked><span>기본</span></label><label><input type="radio" name="textSize" value="large"><span>크게</span></label><label><input type="radio" name="textSize" value="largest"><span>더 크게</span></label></div></fieldset>
+      <label class="setting-group" for="voiceSpeed"><span class="setting-label">음성 속도 <output id="voiceSpeedValue" for="voiceSpeed">1.0배</output></span><input id="voiceSpeed" type="range" min="0.7" max="1.3" step="0.1" value="1"><span class="range-labels"><span>천천히</span><span>빠르게</span></span></label>
+      <p class="settings-note">글자 크기와 화면 설정은 이 브라우저에 저장돼요. 음성 속도는 브라우저가 읽어주는 안내에 적용돼요.</p>
+      <div class="voice-row"><div><svg class="icon" id="voiceIcon" aria-hidden="true"><use href="#i-volume"/></svg><span>음성 안내</span></div><button class="switch-control" id="voiceToggle" role="switch" aria-checked="true" aria-label="음성 안내"><span id="voiceStateText">켜짐</span><span class="switch-track" aria-hidden="true"><span></span></span></button></div>
+      <button class="connection-trigger" id="connectionTrigger" aria-haspopup="dialog"><span>연결 상태</span><span class="status-dot" id="connectionDot" aria-hidden="true"></span><span id="connectionLabel">연결 확인 중</span></button>
+      <details class="camera-disclosure" id="cameraDisclosure"><summary>카메라 미리보기와 시연</summary>
+      <section class="camera-panel" aria-labelledby="cameraTitle">
+        <div class="section-heading"><h2 id="cameraTitle">카메라</h2><button class="icon-button" id="switchCamera" disabled><svg class="icon"><use href="#i-switch"/></svg><span>카메라 전환</span></button></div>
+        <div class="camera-stage" id="cameraStage">
+          <video id="camera" autoplay muted playsinline aria-label="현재 카메라 화면" hidden></video>
+          <div class="camera-placeholder" id="cameraPlaceholder">
+            <div class="viewfinder" aria-hidden="true"><i></i><i></i><i></i><i></i><svg class="icon"><use href="#i-camera"/></svg></div>
+            <h3>주변을 비춰 주세요</h3>
+            <p>카메라를 켜면 이곳에 <br>실시간 화면이 보여요.</p>
+            <button class="button button-small button-primary" id="enableCamera"><svg class="icon"><use href="#i-camera"/></svg>카메라 켜기</button>
+            <span class="permission-note">카메라·마이크 접근을 요청해요.<br>마이크는 질문할 때만 사용해요.</span>
+          </div>
+          <div class="demo-scene" id="demoScene" hidden aria-label="디자인 시연용 가상 실내 장면">
+            <svg viewBox="0 0 800 650" role="img" aria-label="실제 카메라가 아닌 시연용 복도 그림" preserveAspectRatio="xMidYMid slice">
+              <rect width="800" height="650" fill="#e7e9ea"/>
+              <path d="M0 0h800L520 165H280Z" fill="#f4f5f4"/><path d="M0 650h800L520 400H280Z" fill="#cbd0d2"/>
+              <path d="M0 0 280 165v235L0 650" fill="#e0e3e4"/><path d="m800 0-280 165v235l280 250" fill="#d4dadc"/>
+              <path d="M280 165h240v235H280Z" fill="#bcc5c9"/><path d="M322 206h156v194H322Z" fill="#95a3ac"/>
+              <path d="m620 170 125-54v466l-125-85Z" fill="#8e9ca7"/><path d="m635 184 94-38v405l-94-63Z" fill="#aab5bc"/><path d="M650 348v22" stroke="#435969" stroke-width="7" stroke-linecap="round"/>
+              <path d="m65 103 116 50v343L65 570Z" fill="#b9c2c7"/><path d="m214 170 35 15v242l-35 28Z" fill="#b9c2c7"/>
+              <g fill="#fff"><path d="M250 35h300l-38 24H288Z"/><path d="M322 102h156l-18 13H340Z"/><path d="M360 142h80l-8 6h-64Z"/></g>
+              <g stroke="#adb6bc" fill="none" stroke-width="2"><path d="M280 400 0 650m520-250 280 250m-400-250v250m-120-200h240m-194 56h300m-386 73h470"/></g>
+              <g class="demo-door-mark"><rect x="613" y="163" width="137" height="350" rx="8" fill="none" stroke="#e6b641" stroke-width="4"/><rect x="629" y="178" width="60" height="34" rx="4" fill="#fff"/><text x="659" y="201" fill="#192a3a" text-anchor="middle" font-family="sans-serif" font-size="18">문</text></g>
+              <g class="demo-obstacle-mark" fill="#71818e" stroke="#354858" stroke-width="5"><path d="M470 367h111v105H470Z"/><path d="m455 479 137 0-8 35H463Z"/><path d="m471 514-8 76m115-76 12 76m-62-76v80"/><path d="m450 590 30 0m95 0h30"/><rect x="444" y="355" width="159" height="252" rx="10" fill="none" stroke="#e6b641" stroke-width="5"/></g>
+            </svg>
+            <div class="demo-scene-shade"></div>
+          </div>
+          <div class="camera-overlay-top"><span class="camera-live" id="cameraLive" hidden><span></span>실시간 카메라</span><span class="example-label" id="cameraDemoBadge" hidden>시연 예시 · 가상 장면</span></div>
+          <div class="camera-overlay-bottom" id="cameraOverlay" hidden><svg class="icon"><use href="#i-eye"/></svg><span id="cameraOverlayText">현재 비추는 방향을 확인해요</span></div>
+        </div>
+        <div class="device-status"><span id="cameraStatus"><svg class="icon"><use href="#i-camera"/></svg><span>카메라 꺼짐</span></span><span id="micStatus"><svg class="icon"><use href="#i-mic"/></svg><span>마이크 꺼짐</span></span></div>
+        <div class="camera-footnote"><button class="text-button" id="demoToggle"><svg class="icon" aria-hidden="true"><use href="#i-grid"/></svg><span>디자인 시연</span></button><button class="text-button" id="disconnectAction">카메라·연결 종료</button></div>
+      </section>
+      </details>
+      <button class="button button-outline full-width" id="settingsDone">설정 완료</button>
+    </div>
+  </dialog>
+
+  <dialog id="connectionDialog" aria-labelledby="connectionTitle">
+    <form method="dialog" class="dialog-header"><h2 id="connectionTitle">연결 상태</h2><button class="icon-button" value="close" aria-label="연결 상태 닫기"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button></form>
+    <div class="dialog-content"><p class="dialog-description">영상·음성이 서버까지 전달되는지 확인할 수 있어요.</p>
+      <dl class="connection-list"><div><dt>카메라·마이크 권한</dt><dd id="detailMedia">요청 전</dd></div><div><dt>웹 연결 환경</dt><dd id="detailSecure">확인 중</dd></div><div><dt>실시간 통신</dt><dd id="detailTransport">연결 전</dd></div><div><dt>AI 분석</dt><dd id="detailAI">확인 중</dd></div><div><dt>서버가 받은 영상</dt><dd id="detailVideo">0 프레임</dd></div><div><dt>서버가 받은 음성</dt><dd id="detailAudio">0 샘플</dd></div><div><dt>최근 영상 도착</dt><dd id="detailFrameAge">—</dd></div></dl>
+      <p class="connection-note" id="connectionNote">카메라·마이크를 켠 뒤 서버 연결을 확인해 보세요.</p>
+      <div class="dialog-button-stack"><button class="button button-primary" id="connectAction"><svg class="icon"><use href="#i-link"/></svg>서버 연결</button><button class="button button-outline" id="testAudioAction" disabled><svg class="icon"><use href="#i-volume"/></svg>연결 확인음 듣기</button><button class="text-button" id="refreshHealth">상태 새로고침</button></div>
+      <p class="settings-note">확인음은 통신 테스트용입니다. 실제 주변 분석이나 이동 안내가 아니에요.</p>
+    </div>
+  </dialog>
+  <audio id="remoteAudio" autoplay playsinline></audio>
+  <div class="sr-only" id="urgentMessage" role="alert" aria-live="assertive" aria-atomic="true"></div>
+</body>
+</html>
