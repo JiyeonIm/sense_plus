@@ -12,6 +12,11 @@
 		A10000000000000000000004 /* ARDepthCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000004; };
 		A10000000000000000000005 /* DualCameraCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005; };
 		A10000000000000000000006 /* DepthEstimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000006; };
+		A10000000000000000000007 /* StereoGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000009; };
+		A10000000000000000000008 /* StereoMatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000A; };
+		A10000000000000000000009 /* RoundedDistance.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000B; };
+		A1000000000000000000000A /* StereoFrameSolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000C; };
+		A1000000000000000000000B /* StereoCameraCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000D; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -23,6 +28,11 @@
 		A20000000000000000000006 /* DepthEstimator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DepthEstimator.swift; sourceTree = "<group>"; };
 		A20000000000000000000007 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A20000000000000000000008 /* SenseDepth.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SenseDepth.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A20000000000000000000009 /* StereoGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StereoGeometry.swift; sourceTree = "<group>"; };
+		A2000000000000000000000A /* StereoMatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StereoMatcher.swift; sourceTree = "<group>"; };
+		A2000000000000000000000B /* RoundedDistance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoundedDistance.swift; sourceTree = "<group>"; };
+		A2000000000000000000000C /* StereoFrameSolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StereoFrameSolver.swift; sourceTree = "<group>"; };
+		A2000000000000000000000D /* StereoCameraCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StereoCameraCapture.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -43,13 +53,15 @@
 		A40000000000000000000002 /* SenseDepth */ = {
 			isa = PBXGroup;
 			children = (A20000000000000000000001, A20000000000000000000002, A20000000000000000000003,
-				A20000000000000000000004, A20000000000000000000005, A20000000000000000000007);
+				A20000000000000000000004, A20000000000000000000005, A20000000000000000000007,
+				A2000000000000000000000C, A2000000000000000000000D);
 			path = SenseDepth;
 			sourceTree = "<group>";
 		};
 		A40000000000000000000003 /* DepthCore */ = {
 			isa = PBXGroup;
-			children = (A20000000000000000000006);
+			children = (A20000000000000000000006, A20000000000000000000009, A2000000000000000000000A,
+				A2000000000000000000000B);
 			path = DepthCore;
 			sourceTree = "<group>";
 		};
@@ -106,7 +118,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (A10000000000000000000001, A10000000000000000000002, A10000000000000000000003,
-				A10000000000000000000004, A10000000000000000000005, A10000000000000000000006);
+				A10000000000000000000004, A10000000000000000000005, A10000000000000000000006,
+				A10000000000000000000007, A10000000000000000000008, A10000000000000000000009,
+				A1000000000000000000000A, A1000000000000000000000B);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */

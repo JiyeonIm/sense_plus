@@ -1,4 +1,5 @@
 import CoreVideo
+import Foundation
 import ImageIO
 
 protocol DepthCapture: AnyObject {
@@ -10,36 +11,39 @@ struct DepthFrame {
     let image: CVPixelBuffer
     let orientation: CGImagePropertyOrientation
     let result: DepthResult
+    let receivedAt: TimeInterval
+
+    init(
+        image: CVPixelBuffer, orientation: CGImagePropertyOrientation, result: DepthResult,
+        receivedAt: TimeInterval = ProcessInfo.processInfo.systemUptime
+    ) {
+        self.image = image
+        self.orientation = orientation
+        self.result = result
+        self.receivedAt = receivedAt
+    }
 }
 
 extension DepthEstimator {
     private struct RegionSamples {
         var center: [Float] = []
         var centerTotal = 0
-        var surround: [Float] = []
-        var surroundTotal = 0
     }
 
     static func map(
-        _ map: CVPixelBuffer, confidence: CVPixelBuffer? = nil, source: DepthSource, absolute: Bool
+        _ map: CVPixelBuffer, confidence: CVPixelBuffer? = nil, source: DepthSource
     ) -> DepthResult {
         if source == .lidar, confidence == nil {
             return .unavailable("LiDAR 깊이의 신뢰도를 확인할 수 없어요.")
         }
-        guard let samples = sampleRegions(map, confidence: confidence, includeSurround: !absolute) else {
+        guard let samples = sampleCenter(map, confidence: confidence) else {
             return .unavailable("깊이 데이터 형식을 확인할 수 없어요.")
         }
-        if absolute {
-            return metric(samples.center, total: samples.centerTotal, source: source)
-        }
-        return relative(
-            center: samples.center, centerTotal: samples.centerTotal,
-            surround: samples.surround, surroundTotal: samples.surroundTotal
-        )
+        return metric(samples.center, total: samples.centerTotal, source: source)
     }
 
-    private static func sampleRegions(
-        _ map: CVPixelBuffer, confidence: CVPixelBuffer?, includeSurround: Bool
+    private static func sampleCenter(
+        _ map: CVPixelBuffer, confidence: CVPixelBuffer?
     ) -> RegionSamples? {
         let width = CVPixelBufferGetWidth(map)
         let height = CVPixelBufferGetHeight(map)
@@ -78,10 +82,7 @@ extension DepthEstimator {
         let middleX = width / 2
         let middleY = height / 2
         let shortSide = min(width, height)
-        let centerRadius = max(2, shortSide / 10)
-        let innerRing = max(centerRadius + 1, shortSide * 16 / 100)
-        let outerRing = max(innerRing + 1, shortSide * 28 / 100)
-        let radius = includeSurround ? outerRing : centerRadius
+        let radius = max(2, shortSide / 10)
         let step = max(1, shortSide / 120)
         var collected = RegionSamples()
 
@@ -91,14 +92,11 @@ extension DepthEstimator {
             let dy = y - middleY
             for x in stride(from: max(0, middleX - radius), through: min(width - 1, middleX + radius), by: step) {
                 let dx = x - middleX
-                let distanceSquared = dx * dx + dy * dy
-                let inCenter = distanceSquared <= centerRadius * centerRadius
-                let inRing = includeSurround && distanceSquared >= innerRing * innerRing && distanceSquared <= outerRing * outerRing
-                guard inCenter || inRing else { continue }
-                if inCenter { collected.centerTotal += 1 } else { collected.surroundTotal += 1 }
+                guard dx * dx + dy * dy <= radius * radius else { continue }
+                collected.centerTotal += 1
                 // ARKit confidence map uses 0/1/2 for low/medium/high confidence.
                 if let grades, grades[x] != 1 && grades[x] != 2 { continue }
-                if inCenter { collected.center.append(data[x]) } else { collected.surround.append(data[x]) }
+                collected.center.append(data[x])
             }
         }
         return collected

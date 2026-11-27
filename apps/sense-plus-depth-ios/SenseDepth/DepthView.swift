@@ -29,6 +29,7 @@ struct DepthView: View {
                         actionLabel("거리 듣기", symbol: "speaker.wave.2.fill")
                     }
                     .buttonStyle(DepthButtonStyle(fill: Self.navy, ink: .white, minimumHeight: 64))
+                    .disabled(model.currentDistance == nil)
 
                     preview
                 }
@@ -204,7 +205,8 @@ private extension DepthSource {
     var title: String {
         switch self {
         case .lidar: return "LiDAR"
-        case .dualCamera: return "듀얼 카메라"
+        case .calibratedStereo: return "스테레오 거리"
+        case .dualCamera: return "Apple 깊이"
         case .trackedSurface: return "평면 인식"
         }
     }
@@ -212,7 +214,8 @@ private extension DepthSource {
     var detail: String {
         switch self {
         case .lidar: return "화면 중앙 영역까지의 센서 거리예요."
-        case .dualCamera: return "카메라 두 대로 화면 중앙 영역의 깊이를 추정해요."
+        case .calibratedStereo: return "후면 광각·초광각 영상으로 중앙 거리를 추정해요."
+        case .dualCamera: return "카메라가 제공하는 미터 단위 깊이를 사용해요."
         case .trackedSurface: return "화면 중앙에서 인식한 평면까지의 거리를 추정해요."
         }
     }
@@ -232,24 +235,19 @@ private struct Reading {
     init(result: DepthResult) {
         switch result {
         case let .metric(measurement):
-            let amount = measurement.metres.formatted(.number.precision(.fractionLength(0 ... 1)))
+            guard let distance = RoundedDistance(measurement) else {
+                self.init("거리 데이터 대기 중")
+                return
+            }
             let context: String
             switch measurement.source {
             case .lidar: context = "중앙 영역의 LiDAR 거리"
-            case .dualCamera: context = "중앙 영역의 추정 거리"
+            case .calibratedStereo, .dualCamera: context = "중앙 영역의 추정 거리"
             case .trackedSurface: context = "중앙에서 인식된 평면까지의 추정 거리"
             }
-            self.init("약 \(amount) m", context, spoken: "\(context)는 약 \(amount) 미터예요.")
-        case let .relative(relation):
-            let comparison: String
-            switch relation {
-            case .closer: comparison = "주변보다 가까워요"
-            case .similar: comparison = "주변과 비슷해요"
-            case .farther: comparison = "주변보다 멀어요"
-            }
-            self.init(comparison, "화면 중앙 영역의 상대 거리", spoken: "화면 중앙 영역이 \(comparison).")
+            self.init("약 \(distance.number) m", context, spoken: distance.spoken)
         case let .unavailable(reason):
-            self.init("거리 확인이 어려워요", reason)
+            self.init("거리 데이터 대기 중", reason)
         }
     }
 }
@@ -289,7 +287,7 @@ private final class DepthPreviewRenderer: @unchecked Sendable {
         return RenderedDepthFrame(
             image: context.createCGImage(thumbnail, from: thumbnail.extent),
             result: frame.result,
-            receivedAt: now
+            receivedAt: frame.receivedAt
         )
     }
 
@@ -315,6 +313,7 @@ private final class DepthViewModel: ObservableObject {
 
     let sources: [DepthSource]
     private let speaker = AVSpeechSynthesizer()
+    private var announcements = DistanceAnnouncements()
     private let maximumFrameAge = 1.0
     private var capture: (any DepthCapture)?
     private var renderer: DepthPreviewRenderer?
@@ -327,13 +326,19 @@ private final class DepthViewModel: ObservableObject {
     init() {
         var modes: [DepthSource] = []
         if ARDepthCapture.supportsLiDAR { modes.append(.lidar) }
-        if DualCameraCapture.isSupported { modes.append(.dualCamera) }
+        if StereoCameraCapture.isSupported { modes.append(.calibratedStereo) }
         if ARDepthCapture.supportsSurface { modes.append(.trackedSurface) }
+        if DualCameraCapture.isSupported { modes.append(.dualCamera) }
         sources = modes
         source = modes.first
     }
 
     var isRunning: Bool { state == .starting || state == .running }
+    var currentDistance: RoundedDistance? {
+        guard let preview, ProcessInfo.processInfo.systemUptime - preview.receivedAt <= maximumFrameAge
+        else { return nil }
+        return RoundedDistance(preview.result)
+    }
 
     var reading: Reading {
         switch state {
@@ -350,9 +355,9 @@ private final class DepthViewModel: ObservableObject {
             if let preview, ProcessInfo.processInfo.systemUptime - preview.receivedAt <= maximumFrameAge {
                 return Reading(result: preview.result)
             }
-            return Reading("새 거리 정보가 없어요", "카메라를 잠시 고정해 주세요.")
+            return Reading("거리 데이터 대기 중", "카메라를 잠시 고정해 주세요.")
         case let .failure(reason):
-            return Reading("거리 측정이 어려워요", reason)
+            return Reading("카메라 확인", reason)
         }
     }
 
@@ -428,6 +433,11 @@ private final class DepthViewModel: ObservableObject {
                       ProcessInfo.processInfo.systemUptime - rendered.receivedAt <= self.maximumFrameAge else { return }
                 self.preview = rendered
                 if self.state == .starting { self.state = .running }
+                if let distance = self.announcements.update(
+                    RoundedDistance(rendered.result), now: rendered.receivedAt, isSpeaking: self.speaker.isSpeaking
+                ) {
+                    self.speak(distance)
+                }
             }
         }
         let onFailure: @Sendable (String) -> Void = { [weak self] message in
@@ -440,6 +450,8 @@ private final class DepthViewModel: ObservableObject {
         switch source {
         case .lidar, .trackedSurface:
             capture = ARDepthCapture(source: source, onFrame: onFrame, onFailure: onFailure)
+        case .calibratedStereo:
+            capture = StereoCameraCapture(onFrame: onFrame, onFailure: onFailure)
         case .dualCamera:
             capture = DualCameraCapture(onFrame: onFrame, onFailure: onFailure)
         }
@@ -463,6 +475,7 @@ private final class DepthViewModel: ObservableObject {
         }
         if let preview, now - preview.receivedAt > maximumFrameAge {
             self.preview = nil
+            _ = announcements.update(nil, now: now)
         }
         return true
     }
@@ -481,16 +494,23 @@ private final class DepthViewModel: ObservableObject {
             }
         }
         capture = nil
+        announcements = DistanceAnnouncements()
         speaker.stopSpeaking(at: .immediate)
         preview = nil
         state = .idle
     }
 
     func speakReading() {
-        guard isRunning else { return }
-        let utterance = AVSpeechUtterance(string: reading.spoken)
-        utterance.voice = AVSpeechSynthesisVoice(language: "ko-KR")
+        guard isRunning, let distance = currentDistance else { return }
+        announcements.record(distance, now: ProcessInfo.processInfo.systemUptime)
         speaker.stopSpeaking(at: .immediate)
+        speak(distance)
+    }
+
+    private func speak(_ distance: RoundedDistance) {
+        guard let voice = AVSpeechSynthesisVoice(language: "ko-KR") else { return }
+        let utterance = AVSpeechUtterance(string: distance.spoken)
+        utterance.voice = voice
         speaker.speak(utterance)
     }
 }

@@ -252,7 +252,9 @@ extension DualCameraCapture: AVCaptureDataOutputSynchronizerDelegate {
             ? data.depthDataMap
             : data.converting(toDepthDataType: kCVPixelFormatType_DepthFloat32).depthDataMap
         let isMetric = data.depthDataAccuracy == .absolute && data.depthDataQuality == .high
-        let result = DepthEstimator.map(map, source: .dualCamera, absolute: isMetric)
+        let result: DepthResult = isMetric
+            ? DepthEstimator.map(map, source: .dualCamera)
+            : .unavailable("미터 단위 깊이 데이터를 기다리는 중")
         onFrame(DepthFrame(image: image, orientation: .right, result: result))
     }
 }

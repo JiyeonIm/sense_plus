@@ -73,7 +73,7 @@ final class ARDepthCapture: NSObject, DepthCapture, ARSessionDelegate {
             config.frameSemantics.insert(.sceneDepth)
         case .trackedSurface:
             config.planeDetection = [.horizontal, .vertical]
-        case .dualCamera:
+        case .dualCamera, .calibratedStereo:
             onFailure("AR 캡처에서는 듀얼 카메라 깊이를 사용할 수 없습니다.")
             return
         }
@@ -117,7 +117,7 @@ final class ARDepthCapture: NSObject, DepthCapture, ARSessionDelegate {
                 result = lidarResult(frame)
             case .trackedSurface:
                 result = surfaceResult(frame, session: session)
-            case .dualCamera:
+            case .dualCamera, .calibratedStereo:
                 result = .unavailable("듀얼 카메라 깊이 영상을 받지 못했습니다.")
             }
         } else {
@@ -132,7 +132,7 @@ final class ARDepthCapture: NSObject, DepthCapture, ARSessionDelegate {
         guard let depth = frame.sceneDepth, let confidence = depth.confidenceMap else {
             return .unavailable("신뢰도 정보가 포함된 LiDAR 깊이 영상을 기다리고 있습니다.")
         }
-        return DepthEstimator.map(depth.depthMap, confidence: confidence, source: .lidar, absolute: true)
+        return DepthEstimator.map(depth.depthMap, confidence: confidence, source: .lidar)
     }
 
     private func surfaceResult(_ frame: ARFrame, session: ARSession) -> DepthResult {

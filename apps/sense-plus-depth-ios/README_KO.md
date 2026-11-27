@@ -1,15 +1,15 @@
 # SENSE+ iPhone 깊이 시험
 
-iPhone 후면 카메라로 화면 중앙 영역의 깊이를 확인하는 iOS 앱입니다. **거리 측정 시작**을 누르고, 결과가 표시되면 **거리 듣기**로 읽을 수 있습니다. 카메라 영상과 깊이 지도는 기기 메모리에서 처리합니다.
+iPhone 후면 카메라로 화면 중앙을 비추면 “중앙 대상은 약 1.5미터 앞에 있습니다”처럼 거리 추정값을 읽는 iOS 앱입니다. **거리 측정 시작**을 누르면 결과를 0.5m 단위로 반올림해 화면에 표시합니다. 같은 값이 세 번 연속 들어오면 읽고, 거리가 달라지면 3초 이상의 간격을 두고 새 값을 읽습니다. **거리 듣기**로 현재 값을 다시 들을 수 있습니다. 유효한 값이 들어올 때까지는 거리 음성이 나오지 않습니다. 카메라 영상과 깊이 지도는 기기 메모리에서 처리합니다.
 
 | 대상 | 첫 시험 모드 | 표시 |
 |---|---|---|
 | iPhone 15 Pro | LiDAR | ARKit이 반환한 깊이와 신뢰도. 중앙 영역의 표본이 충분하고 일관되면 미터로 표시 |
-| iPhone 16 기본형 | 후면 듀얼 카메라 | 지원 포맷에서 광각·초광각 기반 깊이 지도 수신. 상대 정확도는 중앙이 주변보다 가까움·비슷함·멀리 있음으로 표시 |
-| iPhone 17 기본형 | 후면 듀얼 카메라 | iPhone 16과 같은 경로. 지원 포맷과 실제 동기 수신은 기기에서 확인 |
+| iPhone 16 기본형 | 스테레오 거리 | 후면 광각·초광각 영상의 대응점과 공장 보정 정보로 미터 거리 추정 |
+| iPhone 17 기본형 | 스테레오 거리 | iPhone 16과 같은 방식. 기기가 지원하는 포맷과 보정 정보를 실행 시 확인 |
 | 세 기종의 대체 모드 | 추적된 표면 | ARKit이 추적한 벽·바닥·테이블처럼 평평한 표면까지의 추정 거리 |
 
-듀얼 카메라의 깊이 프레임에서 Apple이 절대 정확도와 높은 품질을 함께 보고하면 미터 표시를 허용합니다. 상대 깊이는 같은 프레임 안에서만 비교합니다. 기종별 카메라 포맷은 실행할 때 확인합니다. [Apple ARKit LiDAR 깊이](https://developer.apple.com/documentation/arkit/arframe/scenedepth) · [Apple AVFoundation 후면 듀얼 카메라](https://developer.apple.com/documentation/avfoundation/avcapturedevice/devicetype-swift.struct/builtindualwidecamera) · [Apple 상대 깊이 정확도](https://developer.apple.com/documentation/avfoundation/avdepthdata/accuracy/relative)
+스테레오 모드는 동시 캡처와 기기 보정이 가능한 경우에 동작합니다. 두 렌즈의 화각 차이를 반영해 중앙 영역의 대응점을 찾고, 거리와 대응이 일관된 점들을 사용합니다. 별도의 **Apple 깊이** 모드는 Apple이 높은 품질의 절대 깊이를 제공할 때 거리값을 사용합니다. [Apple 두 카메라 보정 정보](https://developer.apple.com/documentation/avfoundation/avcapturedevice/extrinsicmatrix%28from%3Ato%3A%29) · [Apple ARKit LiDAR 깊이](https://developer.apple.com/documentation/arkit/arframe/scenedepth) · [Apple 깊이 정확도](https://developer.apple.com/documentation/avfoundation/avdepthdata/depthdataaccuracy)
 
 **측정 대상은 중앙 영역이나 ARKit이 추적한 표면입니다.** 예를 들어 의자를 비추더라도 추적 모드가 뒤쪽 벽을 감지할 수 있습니다. 정지한 상태에서 시험하고, 실제 보행과 장애물 회피는 평소 쓰는 보조 수단을 사용하세요. 시험 화면의 숫자는 보행 안전 판단에 사용하지 않습니다.
 
@@ -26,14 +26,14 @@ iPhone 후면 카메라로 화면 중앙 영역의 깊이를 확인하는 iOS �
 
 ## 실기기 검증 순서
 
-- 기기명, iOS 버전, 선택 모드와 수신된 결과 종류를 기록합니다. 기본형의 듀얼 카메라 모드에서는 지원 여부, 처음 결과가 나오는 시간, 상대값만 제공되는지를 확인합니다.
+- 기기명, iOS 버전과 선택 모드를 기록합니다. 기본형의 스테레오 모드에서는 지원 여부, 처음 숫자가 보이고 들리는 시각과 실제 거리 차이를 기록합니다.
 - 미터 표시 모드는 벽 또는 무늬가 있는 평판을 정면에 두고, 후면 카메라부터 표면까지 줄자로 **0.5m, 1m, 2m, 3m**를 맞춥니다. 각 거리에서 새로 조준하는 방식으로 10회씩 측정합니다. 결과가 없었던 시도도 기록해 측정 성공률을 계산합니다. 표시된 거리와 줄자 거리의 차이를 기준으로 절대 오차의 중앙값과 최댓값을 기록합니다.
-- 상대 깊이 모드는 중앙 대상과 뒤쪽 배경의 거리를 바꿔 가까움·비슷함·멀리 있음 구분을 확인합니다. 숫자 오차 대신 순서의 일치율과 판독 실패율을 기록합니다.
+- 약 1.5m를 같은 조준 상태에서 반복해 불필요하게 읽는지, 2m 쪽으로 조준을 바꾸면 새 값을 읽는지 확인합니다. 카메라를 가려 거리값이 없을 때 음성이 나오지 않는지도 확인합니다.
 - 밝은 실내뿐 아니라 어두운 방, 무늬 없는 벽, 반사 표면, 대상 겹침에서도 확인합니다. 앱이 오래된 숫자를 지우는지, VoiceOver로 모드·시작·결과·종료 조작이 가능한지도 확인합니다.
 
 ## 코드와 검증 범위
 
-`DepthCore`는 유효 표본 비율, 중앙값과 값의 분산으로 중앙 영역을 평가합니다. `ARDepthCapture.swift`는 ARKit의 LiDAR 및 추적된 표면 경로를, `DualCameraCapture.swift`는 같은 시각의 후면 영상과 Apple 깊이 프레임을 처리합니다. 미터 표시 범위는 초기 시험에서 0.25~5m로 제한됩니다.
+`DepthCore`는 중앙에서 유효한 표본을 평가하고 거리값을 반올림합니다. `ARDepthCapture.swift`는 LiDAR 및 추적된 표면을, `StereoCameraCapture.swift`는 두 물리 카메라에서 같은 시각의 영상과 보정값을, `DualCameraCapture.swift`는 Apple 깊이 지도와 영상을 받습니다. 시험에서 받는 거리 범위는 0.25~5m입니다.
 
 Swift가 설치된 환경에서는 이 폴더에서 `swift test`로 거리 판정 로직을 시험합니다. iOS 앱은 Mac의 Xcode에서 빌드하고, 카메라 지원과 거리 오차는 세 기종에서 확인해야 합니다.
 
