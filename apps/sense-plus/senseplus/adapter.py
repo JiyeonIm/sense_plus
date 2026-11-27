@@ -144,10 +144,22 @@ class TeamAdapter:
         url = urlsplit(config.ai_url)
         path = url.path.rstrip("/")
         self._voice_urls: dict[str, str] = {}
+
+        options = {"transport": self.transport} if self.transport is not None else {}
+
+        self.client = httpx.AsyncClient(
+            timeout=self.config.ai_timeout,
+            follow_redirects=False,
+            **options,
+        )
+
         if url.scheme in {"http", "https"} and url.hostname and not (url.username or url.password) and path.endswith("/analyze"):
             prefix = path.removesuffix("/analyze")
             self._voice_urls = {name: urlunsplit((url.scheme, url.netloc, f"{prefix}/{name}", "", ""))
                                 for name in ("stt", "tts", "health", "openapi.json")}
+
+    async def aclose(self):
+        await self.client.aclose()
 
     async def refresh_voice_wake_available(self) -> bool:
         if not self._voice_urls:
@@ -182,43 +194,84 @@ class TeamAdapter:
         return True
 
     async def _request(
-        self, method: str, url: str, payload: dict | None = None, *,
-        timeout: float | None = None, response_limit: int = MAX_RESPONSE_BYTES,
-    ) -> dict:
-        encoded = json.dumps(payload, ensure_ascii=False).encode("utf-8") if payload is not None else None
-        if encoded is not None and len(encoded) > MAX_REQUEST_BYTES:
-            raise AdapterError("질문 데이터가 허용 크기를 초과했습니다. 질문을 짧게 해 주세요.")
-        headers = {"Accept": "application/json"}
-        if encoded is not None:
-            headers["Content-Type"] = "application/json"
-        if self.config.ai_key:
-            headers["Authorization"] = f"Bearer {self.config.ai_key}"
-        timeout = self.config.ai_timeout if timeout is None else min(self.config.ai_timeout, timeout)
-        options = {"transport": self.transport} if self.transport is not None else {}
-        try:
-            # Bound total time as well as each HTTP read.
-            async with asyncio.timeout(timeout), httpx.AsyncClient(
-                timeout=timeout, follow_redirects=False, **options,
-            ) as client:
-                async with client.stream(method, url, content=encoded, headers=headers) as response:
-                    response.raise_for_status()
-                    raw = bytearray()
-                    async for chunk in response.aiter_bytes():
-                        if len(raw) + len(chunk) > response_limit:
-                            raise AdapterError("AI 응답이 허용 크기를 초과했습니다.")
-                        raw.extend(chunk)
-            result = json.loads(raw)
-            if not isinstance(result, dict):
-                raise ValueError("response is not a JSON object")
-            return result
-        except (httpx.TimeoutException, TimeoutError) as exc:
-            raise AdapterError("AI 응답 시간이 초과되었습니다. 잠시 뒤 다시 시도해 주세요.") from exc
-        except httpx.HTTPStatusError as exc:
-            raise AdapterError(f"AI 서버가 요청을 처리하지 못했습니다 (HTTP {exc.response.status_code}).") from exc
-        except httpx.RequestError as exc:
-            raise AdapterError("AI 서버에 연결할 수 없습니다.") from exc
-        except (ValueError, TypeError) as exc:
-            raise AdapterError("AI 응답 형식이 연결 규격과 맞지 않습니다.") from exc
+            self, method: str, url: str, payload: dict | None = None, *,
+            timeout: float | None = None,
+            response_limit: int = MAX_RESPONSE_BYTES,
+        ) -> dict:
+
+            encoded = (
+                json.dumps(payload, ensure_ascii=False).encode("utf-8")
+                if payload is not None else None
+            )
+
+            if encoded is not None and len(encoded) > MAX_REQUEST_BYTES:
+                raise AdapterError(
+                    "질문 데이터가 허용 크기를 초과했습니다. 질문을 짧게 해 주세요."
+                )
+
+            headers = {"Accept": "application/json"}
+
+            if encoded is not None:
+                headers["Content-Type"] = "application/json"
+
+            if self.config.ai_key:
+                headers["Authorization"] = f"Bearer {self.config.ai_key}"
+
+            timeout = (
+                self.config.ai_timeout
+                if timeout is None
+                else min(self.config.ai_timeout, timeout)
+            )
+
+            try:
+                # 기존 AsyncClient 재사용
+                async with asyncio.timeout(timeout):
+                    async with self.client.stream(
+                        method,
+                        url,
+                        content=encoded,
+                        headers=headers,
+                        timeout=timeout,
+                    ) as response:
+
+                        response.raise_for_status()
+
+                        raw = bytearray()
+
+                        async for chunk in response.aiter_bytes():
+                            if len(raw) + len(chunk) > response_limit:
+                                raise AdapterError(
+                                    "AI 응답이 허용 크기를 초과했습니다."
+                                )
+                            raw.extend(chunk)
+
+                result = json.loads(raw)
+
+                if not isinstance(result, dict):
+                    raise ValueError("response is not a JSON object")
+
+                return result
+
+            except (httpx.TimeoutException, TimeoutError) as exc:
+                raise AdapterError(
+                    "AI 응답 시간이 초과되었습니다. 잠시 뒤 다시 시도해 주세요."
+                ) from exc
+
+            except httpx.HTTPStatusError as exc:
+                raise AdapterError(
+                    f"AI 서버가 요청을 처리하지 못했습니다 "
+                    f"(HTTP {exc.response.status_code})."
+                ) from exc
+
+            except httpx.RequestError as exc:
+                raise AdapterError(
+                    "AI 서버에 연결할 수 없습니다."
+                ) from exc
+
+            except (ValueError, TypeError) as exc:
+                raise AdapterError(
+                    "AI 응답 형식이 연결 규격과 맞지 않습니다."
+                ) from exc
 
     async def transcribe_voice(self, pcm: np.ndarray) -> str:
         if not self.voice_wake_available:
@@ -246,7 +299,25 @@ class TeamAdapter:
     async def analyze(self, payload: dict) -> AnalysisResult:
         if not self.config.ai_configured:
             raise AdapterError("AI가 연결되지 않았습니다. 카메라·음성 연결만 시험할 수 있습니다.")
-        response = await self._request("POST", self.config.ai_url, payload)
+        # response = await self._request("POST", self.config.ai_url, payload)
+        request_start = time.perf_counter()
+
+        response = await self._request(
+            "POST", self.config.ai_url, payload
+        )
+
+        request_ms = (time.perf_counter() - request_start) * 1000
+        backend_ms = response.get("timings_ms", {}).get("total_ms")
+
+        print(f"[HTTP] 전체 요청 시간: {request_ms:.1f}ms")
+
+        if backend_ms is not None:
+            print(f"[HTTP] Backend 처리 시간: {backend_ms:.1f}ms")
+            print(
+                f"[HTTP] 통신 및 기타 Overhead: "
+                f"{request_ms - backend_ms:.1f}ms"
+            )
+
         try:
             parsed = TeamResponse.model_validate(response)
         except (ValueError, TypeError) as exc:

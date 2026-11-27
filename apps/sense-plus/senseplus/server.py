@@ -78,11 +78,22 @@ def create_app(config: Config | None = None, manager: SessionManager | None = No
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         cleanup_task = asyncio.create_task(manager.cleanup())
-        yield
-        cleanup_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await cleanup_task
-        await manager.close_all()
+
+        try:
+            yield
+
+        finally:
+            cleanup_task.cancel()
+
+            with contextlib.suppress(asyncio.CancelledError):
+                await cleanup_task
+
+            try:
+                await manager.close_all()
+            finally:
+                # HTTP Client 종료
+                if hasattr(manager.adapter, "aclose"):
+                    await manager.adapter.aclose()
 
     app = FastAPI(title="SENSE+", version=__version__, lifespan=lifespan, docs_url=None, redoc_url=None)
     app.state.manager, app.state.rtc, app.state.config = manager, rtc, config
