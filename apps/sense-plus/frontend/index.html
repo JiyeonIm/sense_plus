@@ -105,7 +105,7 @@
           </div>
         </details>
         <button class="return-guide text-button" id="returnGuide" hidden>주변 확인으로 돌아가기</button>
-        <button class="button button-outline audio-resume" id="audioResume" hidden><svg class="icon"><use href="#i-volume"/></svg>음성 재생 허용</button>
+        <button class="button button-outline audio-resume" id="audioResume" hidden><svg class="icon" aria-hidden="true"><use href="#i-volume"/></svg>음성 재생</button>
         <p class="safety-note">보행 판단에는 흰지팡이 등 평소 사용하는 보조수단을 함께 사용하세요.</p>
       </section>
     </main>
@@ -167,7 +167,7 @@
       <p class="settings-note">확인음은 통신 테스트용입니다. 실제 주변 분석이나 이동 안내가 아니에요.</p>
     </div>
   </dialog>
-  <audio id="remoteAudio" autoplay playsinline></audio>
+  <audio id="remoteAudio" playsinline></audio>
   <div class="sr-only" id="urgentMessage" role="alert" aria-live="assertive" aria-atomic="true"></div>
 </body>
 </html>

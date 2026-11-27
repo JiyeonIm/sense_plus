@@ -36,7 +36,9 @@ if errorlevel 1 goto failed
 ".venv\Scripts\python.exe" -m pip install -r requirements.txt
 if errorlevel 1 goto failed
 echo.
-echo 설치 완료. start_windows.bat를 실행하면 됩니다.
+echo 설치 완료.
+echo iPhone 연결 및 QR 표시 - start_phone_windows.bat
+echo PC에서만 시험 - start_windows.bat
 echo 유료 AI API는 호출하지 않았습니다.
 pause
 exit /b 0

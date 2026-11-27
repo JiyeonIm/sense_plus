@@ -151,3 +151,38 @@ test('QR is usable in memory when browser settings block tab storage', t => {
   client.setPairingCode('invalid');
   assert.equal(client.hasPairingCode, false);
 });
+
+test('answer audio is negotiated only with a capable server', async t => {
+  const sessions = [];
+  let advertised = false;
+  t.mock.method(globalThis, 'fetch', async (path, options) => {
+    if (path === '/api/health') return Response.json({rtc_available: true, answer_audio_http: advertised});
+    sessions.push(options.headers.get('X-Sense-Answer-Audio'));
+    return Response.json({detail: 'fixture stopped after checking headers'}, {status: 409});
+  });
+  const client = new SenseTransport({answerAudioHttp: true});
+  await assert.rejects(client.connect(media), /fixture/);
+  advertised = true;
+  await assert.rejects(client.connect(media), /fixture/);
+  assert.deepEqual(sessions, [null, 'http']);
+});
+
+test('answer audio fetch carries session auth and drops a reply after disconnect', async t => {
+  const client = new SenseTransport();
+  client._pc = {connectionState: 'connected', getSenders: () => [], close() {}};
+  client._sessionId = 'voice-session';
+  client._token = 'voice-token';
+  client._deleteSession = async () => {};
+  const pending = deferred();
+  const id = 'b'.repeat(32);
+  t.mock.method(globalThis, 'fetch', (path, options) => {
+    assert.equal(path, `/api/sessions/voice-session/audio/${id}.wav`);
+    assert.equal(options.headers.Authorization, 'Bearer voice-token');
+    assert.equal(options.cache, 'no-store');
+    return pending.promise;
+  });
+  const receipt = assert.rejects(client.getAnswerAudio(id), /종료된 연결/);
+  await client.disconnect(false);
+  pending.resolve(new Response(new Uint8Array([82, 73, 70, 70])));
+  await receipt;
+});

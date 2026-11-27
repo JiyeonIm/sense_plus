@@ -199,14 +199,20 @@ function renderPairing(monitor) {
   link.textContent = phoneMode ? '' : monitor.user_url;
   if (phoneMode) link.removeAttribute('href');
   else link.href = monitor.user_url;
-  $('pairHint').textContent = phoneMode
-    ? '같은 Wi-Fi에 연결한 휴대폰의 카메라 앱으로 이 QR을 스캔하세요.'
-    : '이 PC에서만 접속할 수 있습니다.';
   const qr = $('pairQr');
   const source = phoneMode ? '/api/pairing-qr.png?v=' + encodeURIComponent(monitor.pairing_qr_version) : null;
   if (source && qr.getAttribute('src') !== source) qr.src = source;
   if (!source) qr.removeAttribute('src');
-  qr.hidden = !source;
+  const qrFailed = Boolean(source && qr.complete && qr.naturalWidth === 0);
+  qr.hidden = !source || qrFailed;
+  const hint = $('pairHint');
+  if (!phoneMode) {
+    hint.textContent = 'PC 단독 모드입니다. iPhone용 QR을 띄우려면 기존 SENSE+ 창에서 Ctrl+C를 누른 뒤 Windows는 start_phone_windows.bat, Mac은 start_phone_mac.command를 실행하세요.';
+  } else if (qrFailed) {
+    hint.textContent = '휴대폰 모드입니다. QR 이미지를 불러오지 못했습니다. 이 관제 화면을 새로고침하세요.';
+  } else {
+    hint.textContent = '휴대폰 모드입니다. 같은 Wi-Fi에 연결한 iPhone의 카메라로 QR을 스캔하세요.';
+  }
 }
 
 function renderSessionOptions(sessions) {

@@ -1,17 +1,20 @@
 SENSE+ v0.2 | 휴대폰 앱과 PC 관제 빠른 시작
 =========================================
 
-[PC에서 실행]
+[설치와 PC 단독 시험]
 1. Python 3.11 또는 3.12를 준비합니다.
 2. 저장소의 apps/sense-plus 폴더에서 Windows는 setup_windows.bat,
    Mac은 setup_mac.command를 한 번 실행합니다. 기존에 설치한 이 앱의 가상환경은 재사용할 수 있습니다.
-3. Windows는 start_windows.bat, Mac은 start_mac.command를 실행합니다.
+3. PC 단독 시험은 Windows start_windows.bat, Mac start_mac.command를 실행합니다.
+   iPhone 접속에 필요한 QR은 아래 휴대폰 모드에서 표시됩니다.
    PC 관제는 http://127.0.0.1:8766, PC 사용자 앱은 http://127.0.0.1:8765입니다.
 4. 종료하려면 서버를 실행한 터미널에서 Ctrl+C를 누릅니다.
 
-[휴대폰 연결]
-1. PC 모드 서버를 종료하고 start_phone_windows.bat 또는 start_phone_mac.command를 실행합니다.
-2. 같은 Wi-Fi에 연결한 PC의 Wi-Fi IPv4 주소를 입력합니다.
+[휴대폰 연결과 QR 표시]
+1. 기존 SENSE+가 켜져 있으면 그 터미널에서 Ctrl+C를 누릅니다.
+   Windows는 start_phone_windows.bat, Mac은 start_phone_mac.command를 실행합니다.
+2. 지금 서버를 실행한 PC의 Wi-Fi IPv4 주소를 입력하고 터미널을 열어 둡니다.
+   PC 브라우저 주소창에 http://127.0.0.1:8766/을 입력하면 접속 QR이 보입니다.
 3. 현재 수업 시연 PC용 공개 인증서는 docs/certificates/SENSE-test-root.cer에서 받을 수 있습니다.
    다른 PC에서 시연하면 그 PC의 터미널에 표시된 SENSE-test-root.cer만 각 iPhone에 전달합니다.
    iPhone에서 파일을 열고 설정의 ‘프로파일이 다운로드됨’ 항목에서 설치합니다.

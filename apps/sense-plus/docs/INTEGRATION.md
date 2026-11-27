@@ -95,7 +95,9 @@ FastRTC SDP 협상 경로입니다. SENSE+에서는 생성한 세션 토큰과 `
 
 카운터는 수신 증거이며 내용 인식의 정확도를 뜻하지 않습니다. 마이크 비활성화 상태에 무음 패킷이 올 수도 있습니다.
 
-`latest_result.source`는 `system`, `transport-test`, `ai`처럼 결과의 출처를 구분합니다. `audio_source`가 `webrtc`이면 서버 음성을 사용하고, `browser-tts`이면 실제 AI 텍스트를 브라우저 음성 합성으로 읽는 경로입니다. 브라우저 TTS의 한국어 음성 및 재생 동작은 기기에서 확인해야 합니다.
+`latest_result.source`는 `system`, `transport-test`, `ai`처럼 결과의 출처를 구분합니다. `audio_source`가 `http-wav`이면 서버 합성 음성을 HTTPS로 가져옵니다. `webrtc`는 실시간 음성 경로이며 `browser-tts`는 브라우저가 텍스트로 합성하는 경로입니다.
+
+브라우저는 `/api/health`의 `answer_audio_http`를 확인한 뒤, Web Audio를 지원할 때만 `POST /api/sessions`에 `X-Sense-Answer-Audio: http`를 보냅니다. `http-wav` 응답은 같은 세션의 Bearer 토큰으로 `GET /api/sessions/{session_id}/audio/{result_id}.wav`에서 가져옵니다. WAV는 24kHz 모노 16비트 PCM입니다. 서버는 최신 답변 하나만 메모리에 유지하고, 세션 종료·오류·새 결과가 도착하면 교체하거나 제거합니다. 브라우저의 첫 조작에서 음성 재생을 준비하고, 일시 중단되면 **음성 재생**으로 현재 답변을 다시 들을 수 있습니다. 기존 클라이언트와 서버 확인음은 WebRTC 경로를 사용합니다.
 
 ### `DELETE /api/sessions/{session_id}`
 
