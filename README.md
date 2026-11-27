@@ -8,6 +8,8 @@
 2. PC 관제는 [127.0.0.1:8766](http://127.0.0.1:8766/), PC에서 여는 사용자 앱은 [127.0.0.1:8765](http://127.0.0.1:8765/)입니다. iPhone에서 처음 시험할 때는 [iPhone 인증서 설치와 연결](apps/sense-plus/README_KO.md#iphone-인증서-설치와-연결) 순서대로 진행합니다.
 3. 기본 설정은 영상·음성 연결 시험입니다. Windows에서 실제 장면 분석에 쓰는 Ollama, 한국어 STT·TTS 설정은 [모델 연동 규격](apps/sense-plus/docs/INTEGRATION.md#windows-로컬-모델)을 따릅니다.
 
+수업에서 시연 PC의 QR로 연결할 iPhone에 필요한 공개 인증서를 받을 수 있습니다. [수업 시연용 `SENSE-test-root.cer` 다운로드](apps/sense-plus/docs/certificates/SENSE-test-root.cer?raw=true) · [한국어 설치 안내](apps/sense-plus/README_KO.md#iphone-인증서-설치와-연결)
+
 ## 구현 상태
 
 - **휴대폰** — 색과 텍스트로 구분한 큰 버튼으로 주변 확인, 음성 질문, 종료를 조작합니다. 주변 확인은 한 번 누르면 장면이 바뀔 때마다 이어집니다. 영상이 흐리면 안정될 때까지 기다리고, 영상 수신이 끊기면 멈춥니다.

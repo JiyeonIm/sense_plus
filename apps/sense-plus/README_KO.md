@@ -99,11 +99,18 @@ GitHub에는 앱 소스와 실행 안내가 있습니다. 수업에서 iPhone으
 
 ### iPhone 인증서 설치와 연결
 
-1. **시연 PC에서 휴대폰 모드 실행.** `apps/sense-plus`에서 Windows는 `start_phone_windows.bat`, Mac은 `start_phone_mac.command`를 실행합니다. 터미널에 Wi-Fi IPv4 주소를 입력합니다. 스크립트가 시험용 HTTPS 인증서를 준비하고 PC 관제에 QR을 표시합니다.
-2. **iPhone에 인증서 전달.** 시연 담당자가 터미널에 표시된 `phone-certs/<PC의 IPv4>/SENSE-test-root.cer` 파일을 각 팀원에게 직접 전달합니다. 예를 들어 메일 첨부로 보내고 iPhone에서 첨부를 엽니다. 같은 시연 PC에 접속하는 iPhone들은 이 공개 인증서 한 파일을 사용합니다. `server-key.pem`은 시연 PC에 보관합니다. [Apple의 인증서 전달 방법](https://support.apple.com/ko-kr/guide/deployment/dep91d2eb26/web)
-3. **프로파일 설치.** iPhone에서 파일을 연 다음 **설정 → 프로파일이 다운로드됨 → 설치**를 선택합니다. 설치 목록은 **설정 → 일반 → VPN 및 기기 관리**에서 확인할 수 있습니다. 다운로드 항목이 사라졌다면 원본 첨부를 다시 열고 바로 설치합니다. [Apple의 프로파일 설치 안내](https://support.apple.com/en-us/102400)
-4. **시험용 인증서 신뢰 켜기.** **설정 → 일반 → 정보 → 인증서 신뢰 설정**에서 **루트 인증서 전체 신뢰 활성화** 아래의 `SENSE+ TEST ONLY <PC의 IPv4>`를 확인하고 이 인증서만 켭니다. 이름의 IPv4가 시연 담당자에게 받은 주소와 일치하는지 확인합니다. [Apple의 인증서 신뢰 안내](https://support.apple.com/ko-kr/102390)
-5. **QR로 연결.** 시연 PC와 같은 Wi-Fi에서 iPhone 기본 카메라로 PC 관제의 QR을 스캔하고 Safari로 엽니다. **주변 확인** 또는 **음성 질문**을 누른 뒤 카메라·마이크 권한을 허용합니다. 서버를 재시작했다면 관제에 표시되는 새 QR을 스캔합니다.
+**[수업 시연용 `SENSE-test-root.cer` 다운로드](docs/certificates/SENSE-test-root.cer?raw=true)**
+
+이 파일은 현재 시연 PC `192.168.40.142`가 쓰는 공개 시험용 인증서예요. 인증서는 **2026년 12월 4일 오전 10시 20분(KST)**까지 유효합니다. 시연 PC가 바뀌거나 시연 담당자가 인증서를 갱신했다면 그 PC에서 새로 받은 파일을 사용해 주세요.
+
+1. **iPhone에서 인증서 열기.** Safari에서 위 다운로드 링크를 누릅니다. 파일만 저장되고 프로파일 다운로드 안내가 뜨지 않으면, 시연 담당자에게 같은 `.cer` 파일을 메일로 받아 iPhone 기본 **Mail** 앱에서 첨부 파일을 열어 주세요. [Apple의 인증서 배포 방법](https://support.apple.com/ko-kr/guide/deployment/depcdc9a6a3f/1/web/1.0)
+2. **설정에서 설치하기.** iPhone **설정**을 열고 상단의 **프로파일이 다운로드됨 → 설치**를 누릅니다. 항목이 사라졌으면 파일이나 메일 첨부를 다시 연 뒤 바로 설정으로 들어갑니다. 설치된 프로파일은 **설정 → 일반 → VPN 및 기기 관리**에서 확인합니다. [Apple의 프로파일 설치 안내](https://support.apple.com/en-us/102400)
+3. **해당 인증서 신뢰하기.** **설정 → 일반 → 정보 → 인증서 신뢰 설정**으로 갑니다. **루트 인증서 전체 신뢰 활성화** 아래에서 `SENSE+ TEST ONLY 192.168.40.142`만 켭니다. 새 파일을 받았다면 시연 담당자가 알려 준 PC 주소와 인증서 이름을 맞춰 봅니다. [Apple의 인증서 신뢰 안내](https://support.apple.com/ko-kr/102390)
+4. **같은 Wi-Fi에서 QR 찍기.** iPhone 기본 카메라로 PC 관제 화면의 QR을 찍어 Safari로 엽니다. **주변 확인**이나 **음성 질문**을 누르고 카메라·마이크를 허용합니다. PC 서버를 다시 켰다면 관제 화면에서 새 QR을 찍습니다.
+
+**시연 PC에서 준비하는 법**
+
+`apps/sense-plus`에서 Windows는 `start_phone_windows.bat`, Mac은 `start_phone_mac.command`를 실행하고 시연 PC의 Wi-Fi IPv4 주소를 입력합니다. 앱은 관제 화면에 QR을 표시합니다. 다른 PC에서 시연할 때는 터미널에 표시된 `phone-certs/<PC의 IPv4>/SENSE-test-root.cer`를 전달합니다. `server-key.pem`은 해당 PC에 보관합니다.
 
 **연결이 막힐 때**
 
@@ -187,7 +194,7 @@ SENSE_AI_KEY=
 팀원은 이 저장소의 앱 소스를 내려받아 자기 PC에서 설치 스크립트를 실행합니다. 아래 파일은 각 PC에서 별도로 관리합니다.
 
 - `.venv`, `venv`, `__pycache__`, 캐시·빌드 폴더
-- `.env`, API 키, 세션 토큰, 인증서, 모델 가중치
+- `.env`, API 키, 세션 토큰, 서버 인증서 개인키, 모델 가중치. 이 저장소에 포함된 수업용 `.cer`는 공개 인증서입니다.
 - 촬영 이미지·녹음 파일·개인정보가 포함된 로그
 - 테스트에서 임시로 생성한 산출물
 

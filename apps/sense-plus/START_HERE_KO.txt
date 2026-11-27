@@ -12,7 +12,8 @@ SENSE+ v0.2 | 휴대폰 앱과 PC 관제 빠른 시작
 [휴대폰 연결]
 1. PC 모드 서버를 종료하고 start_phone_windows.bat 또는 start_phone_mac.command를 실행합니다.
 2. 같은 Wi-Fi에 연결한 PC의 Wi-Fi IPv4 주소를 입력합니다.
-3. PC에서 생성한 SENSE-test-root.cer 공개 인증서만 각 iPhone에 전달합니다.
+3. 현재 수업 시연 PC용 공개 인증서는 docs/certificates/SENSE-test-root.cer에서 받을 수 있습니다.
+   다른 PC에서 시연하면 그 PC의 터미널에 표시된 SENSE-test-root.cer만 각 iPhone에 전달합니다.
    iPhone에서 파일을 열고 설정의 ‘프로파일이 다운로드됨’ 항목에서 설치합니다.
    설정 > 일반 > 정보 > 인증서 신뢰 설정에서 해당 SENSE+ 시험 인증서의 전체 신뢰를 켭니다.
    오류가 나거나 시험을 마쳤다면 README_KO.md의 ‘iPhone 인증서 설치와 연결’을 확인합니다.
@@ -25,6 +26,6 @@ SENSE+ v0.2 | 휴대폰 앱과 PC 관제 빠른 시작
 
 [모델과 검증]
 - 기본 설정은 통신 시험입니다. 로컬 Qwen3-VL, Whisper, Heami를 켜려면 docs/INTEGRATION.md를 확인합니다.
-- PC 관제는 루프백 전용입니다. 테스트 CA·서버 개인키, 로컬 .env, 촬영·녹음 데이터는 공유 소스와 따로 보관합니다.
+- PC 관제는 루프백 전용입니다. 서버 개인키, 로컬 .env, 촬영·녹음 데이터는 공유 소스와 따로 보관합니다.
 - 테스트 CA를 사용한 기기에서는 시험이 끝난 뒤 해당 신뢰와 프로파일을 제거합니다.
 - 현재 검증 범위는 TEST_STATUS.md에 있습니다. 실제 보행 안전 판정에 사용하지 않습니다.
