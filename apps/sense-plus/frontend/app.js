@@ -24,6 +24,7 @@ let pendingTimer = null;
 let lastSpeechId = null;
 let demoChanging = false;
 let autoVoiceAttempted = false;
+let freshQrPending = false;
 let voicePlayback = null;
 
 function acceptScannedPairing() {
@@ -31,10 +32,16 @@ function acceptScannedPairing() {
   if (typeof code !== 'string') return false;
   delete window.sensePairingFromQr;
   transport.setPairingCode(code);
+  freshQrPending = transport.hasPairingCode;
   return true;
 }
 
 acceptScannedPairing();
+
+function suppressAutoVoiceStart() {
+  autoVoiceAttempted = true;
+  freshQrPending = false;
+}
 
 function pairingNeeded() {
   const health = transport.health || state.health;
@@ -349,7 +356,10 @@ function render() {
   let actionIcon = state.mode === 'scene' ? 'eye' : 'play';
   if (state.actionBusy) { actionLabel = '준비 중'; actionIcon = 'link'; }
   else if (state.demo) { actionLabel = state.scenario === 'uncertain' ? '카메라 다시 확인' : state.demoPaused ? '안내 계속' : state.scenario === 'door' ? '일시정지' : '다시 확인'; actionIcon = state.demoPaused ? 'play' : state.scenario === 'door' ? 'pause' : 'repeat'; }
-  else if (canStartVoice) { actionLabel = '카메라·마이크로 시작'; actionIcon = 'camera'; }
+  else if (canStartVoice) {
+    actionLabel = transport.connected ? '음성 안내 시작' : '카메라·마이크로 시작';
+    actionIcon = transport.connected ? 'volume' : 'camera';
+  }
   else if (needsRecheck) { actionLabel = state.result.kind === 'uncertain' ? '카메라 다시 확인' : '다시 확인'; actionIcon = 'repeat'; }
   else if (state.guide === 'active' && state.mode === 'guide') { actionLabel = '일시정지'; actionIcon = 'pause'; }
   else if (state.guide === 'paused' && state.mode === 'guide') { actionLabel = '안내 계속'; actionIcon = 'play'; }
@@ -409,8 +419,8 @@ async function operate(task) {
   }
 }
 
-async function ensureMedia(token = epoch) {
-  if (token !== epoch) return null;
+async function ensureMedia(token = epoch, {visibleOnly = false} = {}) {
+  if (token !== epoch || (visibleOnly && document.hidden)) return null;
   if (isCameraLive()) return state.media;
   if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) throw new Error('카메라·마이크를 사용하려면 HTTPS 주소로 접속해 주세요. 컴퓨터에서는 localhost로 확인할 수 있어요.');
   state.camera = 'requesting';
@@ -433,7 +443,10 @@ async function ensureMedia(token = epoch) {
     if (token === epoch) state.camera = 'error';
     throw new Error(mediaErrorMessage(error));
   }
-  if (token !== epoch) { stream.getTracks().forEach(track => track.stop()); return null; }
+  if (token !== epoch || (visibleOnly && document.hidden)) {
+    stream.getTracks().forEach(track => track.stop());
+    return null;
+  }
   stream.getAudioTracks().forEach(track => { track.enabled = false; });
   state.media = stream;
   state.camera = 'on';
@@ -445,12 +458,13 @@ async function ensureMedia(token = epoch) {
     };
   });
   try { await $('camera').play(); } catch { /* Browser may finish starting playback after metadata loads. */ }
+  if (token !== epoch) return null;
   setStatus('카메라가 준비됐어요.');
   render();
   return stream;
 }
 
-async function ensureConnected(token = epoch) {
+async function ensureConnected(token = epoch, {visibleOnly = false} = {}) {
   if (!state.health && !transport.health) {
     state.health = await transport.checkHealth();
     if (token !== epoch) return false;
@@ -459,8 +473,8 @@ async function ensureConnected(token = epoch) {
     throw new Error('화면 미리보기예요. 실제로 연결하려면 PC 관제 화면의 QR을 스캔해 주세요.');
   }
   if (pairingNeeded()) throw new PairingError(PAIRING_REQUIRED_MESSAGE);
-  const media = await ensureMedia(token);
-  if (!media || token !== epoch) return false;
+  const media = await ensureMedia(token, {visibleOnly});
+  if (!media || token !== epoch || (visibleOnly && document.hidden)) return false;
   if (transport.connected) { state.connection = 'connected'; return true; }
   state.connection = 'connecting';
   render();
@@ -495,10 +509,29 @@ async function waitForCameraFrame(token) {
   throw new Error('영상이 아직 도착하지 않았어요. 카메라를 확인한 뒤 다시 시도해 주세요.');
 }
 
-async function startVoiceWake(token) {
+async function startVoiceWake(token, {fromQr = false} = {}) {
   state.voiceWakeRequested = true;
   try {
-    if (!await ensureConnected(token) || !await waitForCameraFrame(token)) return;
+    const connected = await ensureConnected(token, {visibleOnly: fromQr});
+    if (token !== epoch) return;
+    if (fromQr && document.hidden) {
+      await stopEverything({message: '화면을 떠나 자동 시작을 멈췄어요.'});
+      return;
+    }
+    if (!connected || !await waitForCameraFrame(token)) return;
+    if (fromQr) {
+      // Safari can allow Web Audio once the page is capturing media.
+      const audioReady = !document.hidden && await answerAudio.unlock();
+      if (token !== epoch) return;
+      if (document.hidden) {
+        await stopEverything({message: '화면을 떠나 자동 시작을 멈췄어요.'});
+        return;
+      }
+      if (!audioReady) {
+        setStatus('PC에 연결됐어요. 시작 음성을 들으려면 음성 안내 시작을 한 번 눌러 주세요.');
+        return;
+      }
+    }
     stopSpeech();
     state.mode = 'scene';
     state.currentTurn = null;
@@ -510,25 +543,41 @@ async function startVoiceWake(token) {
     if (token === epoch && !state.voiceWakeEnabled) {
       throw new Error('음성 호출을 시작하지 못했어요. 다시 시도해 주세요.');
     }
+  } catch (error) {
+    if (fromQr && token === epoch) {
+      if (document.hidden) {
+        await stopEverything({message: '화면을 떠나 자동 시작을 멈췄어요.'});
+        return;
+      }
+      if (!transport.connected && state.media) releaseMedia();
+    }
+    throw error;
   } finally {
     if (token === epoch && !state.voiceWakeEnabled) disarmVoiceWake();
   }
 }
 
 async function maybeStartVoiceWake() {
-  if (autoVoiceAttempted || !voiceWakeAvailable() || !preferences.voice || pairingNeeded()
+  const paired = (transport.health || state.health)?.pairing_required === true;
+  if ((paired ? !freshQrPending : autoVoiceAttempted)
+      || state.voiceWakeEnabled || !voiceWakeAvailable() || !preferences.voice || pairingNeeded()
       || !window.isSecureContext || !navigator.mediaDevices?.getUserMedia || !window.RTCPeerConnection
       || document.hidden || state.demo || state.actionBusy || state.mode !== 'scene') return;
+  if (paired) {
+    freshQrPending = false;
+    await operate(token => startVoiceWake(token, {fromQr: true}));
+    if (freshQrPending) void maybeStartVoiceWake();
+    return;
+  }
   autoVoiceAttempted = true;
   const token = epoch;
-  // Only start capture automatically when the browser can also play the opening announcement.
   if (!await answerAudio.unlock() || token !== epoch || document.hidden || state.demo || state.actionBusy || state.mode !== 'scene') return;
   await operate(startVoiceWake);
 }
 
 async function toggleVoiceWake() {
   if ((!voiceWakeAvailable() && !state.voiceWakeEnabled) || state.actionBusy || state.demo || state.listening) return;
-  autoVoiceAttempted = true;
+  suppressAutoVoiceStart();
   if (state.voiceWakeEnabled) {
     await operate(async token => {
       disarmVoiceWake();
@@ -552,7 +601,7 @@ async function toggleVoiceWake() {
 }
 
 async function guideAction() {
-  autoVoiceAttempted = true;
+  suppressAutoVoiceStart();
   unlockAnswerAudio();
   if (state.demo) {
     if (state.scenario === 'door') state.demoPaused = !state.demoPaused;
@@ -592,7 +641,7 @@ async function guideAction() {
 
 async function questionAction() {
   if (state.demo) return;
-  autoVoiceAttempted = true;
+  suppressAutoVoiceStart();
   unlockAnswerAudio();
   if (state.listening) {
     await finishQuestion();
@@ -651,7 +700,7 @@ async function finishQuestion() {
 
 async function stopEverything({ message = '카메라와 연결을 종료했어요.', keepDemo = false } = {}) {
   const token = ++epoch;
-  autoVoiceAttempted = true;
+  suppressAutoVoiceStart();
   clearTimeout(questionTimer);
   clearTimeout(pendingTimer);
   state.listening = false;
@@ -897,7 +946,7 @@ transport.addEventListener('audio', event => {
 });
 
 function connectFromUi() {
-  autoVoiceAttempted = true;
+  suppressAutoVoiceStart();
   unlockAnswerAudio();
   return operate(async token => {
     const reconnect = state.videoStale;
@@ -918,7 +967,7 @@ function connectFromUi() {
 }
 $('quickConnect').addEventListener('click', connectFromUi);
 $('enableCamera').addEventListener('click', () => {
-  autoVoiceAttempted = true;
+  suppressAutoVoiceStart();
   void operate(token => ensureMedia(token));
 });
 $('guideAction').addEventListener('click', guideAction);
@@ -961,7 +1010,7 @@ document.querySelectorAll('input[name=textSize]').forEach(input => input.addEven
 $('voiceSpeed').addEventListener('input', event => { preferences.voiceSpeed = Number(event.target.value); savePreferences(preferences); renderPreferences(); });
 $('connectionTrigger').addEventListener('click', () => { renderConnection(); $('connectionDialog').showModal(); });
 $('connectAction').addEventListener('click', connectFromUi);
-$('refreshHealth').addEventListener('click', refreshHealth);
+$('refreshHealth').addEventListener('click', () => void refreshHealth().then(maybeStartVoiceWake));
 $('testAudioAction').addEventListener('click', () => operate(async () => {
   stopSpeech();
   if (!preferences.voice) { preferences.voice = true; savePreferences(preferences); renderPreferences(); }
@@ -977,7 +1026,7 @@ document.querySelectorAll('dialog').forEach(dialog => dialog.addEventListener('c
 }));
 window.addEventListener('pagehide', () => {
   epoch += 1;
-  autoVoiceAttempted = true;
+  suppressAutoVoiceStart();
   state.listening = false;
   disarmVoiceWake();
   clearTimeout(questionTimer);
@@ -991,10 +1040,15 @@ window.addEventListener('pagehide', () => {
 document.addEventListener('visibilitychange', () => {
   if (document.hidden && state.listening) finishQuestion();
   syncMicrophone();
+  if (!document.hidden) void maybeStartVoiceWake();
 });
 window.addEventListener('hashchange', () => {
   if (!acceptScannedPairing()) return;
-  if (!transport.connected) setStatus(transport.hasPairingCode ? 'QR을 확인했어요. 시작 버튼에서 카메라와 마이크를 연결할 수 있어요.' : PAIRING_REQUIRED_MESSAGE);
+  if (!transport.connected) {
+    setStatus(!transport.hasPairingCode ? PAIRING_REQUIRED_MESSAGE
+      : voiceWakeAvailable() && preferences.voice ? 'QR을 확인했어요. 자동 연결을 준비하고 있어요.'
+      : 'QR을 확인했어요. 주변 확인을 시작할 수 있어요.');
+  }
   render();
   void maybeStartVoiceWake();
 });
