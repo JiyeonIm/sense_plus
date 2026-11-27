@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from typing import Literal
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -103,6 +103,7 @@ def create_app(config: Config | None = None, manager: SessionManager | None = No
             "version": __version__,
             "rtc_available": rtc is not None,
             "video_uplink_only": rtc is not None,
+            "answer_audio_http": True,
             "ai_configured": manager.ai_configured,
             "answer_wait_ms": max(30_000, round(config.ai_timeout * 1000) + config.audio_tail_ms + 5_000),
             "mode": "live",
@@ -117,13 +118,18 @@ def create_app(config: Config | None = None, manager: SessionManager | None = No
         pairing = request.headers.get("X-Sense-Pairing", "")
         if manager.pairing_code and not secrets.compare_digest(pairing.encode(), manager.pairing_code.encode()):
             raise SessionError("PC 관제 화면에서 새 접속 QR을 스캔해 주세요.", 403)
-        session = manager.create()
+        session = manager.create(answer_audio_http=request.headers.get("X-Sense-Answer-Audio") == "http")
         return {"session_id": session.session_id, "token": session.token}
 
     @app.get("/api/sessions/{session_id}/state")
     async def session_state(session_id: str, request: Request):
         session = manager.authorize(session_id, bearer(request))
         return session.public_state(manager.ai_configured)
+
+    @app.get("/api/sessions/{session_id}/audio/{result_id}.wav")
+    async def answer_audio(session_id: str, result_id: str, request: Request):
+        session = manager.authorize(session_id, bearer(request))
+        return Response(manager.answer_audio(session, result_id), media_type="audio/wav")
 
     @app.post("/api/sessions/{session_id}/control")
     async def control(session_id: str, request: Request):

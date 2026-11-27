@@ -1,7 +1,9 @@
 import { PAIRING_REQUIRED_MESSAGE, PairingError, SenseTransport } from './rtc-client.js';
+import { AnswerAudio } from './answer-audio.js';
 import { $, icon, readPreferences, savePreferences, mediaErrorMessage, modes, scenarios } from './ui.js';
 
-const transport = new SenseTransport();
+const answerAudio = new AnswerAudio();
+const transport = new SenseTransport({answerAudioHttp: answerAudio.supported});
 const preferences = readPreferences();
 const CAMERA_TARGET_FPS = 30;
 const VIDEO_STALE_MS = 3000;
@@ -11,10 +13,11 @@ const state = {
   mode: 'scene', guide: 'idle', listening: false, questionPending: false,
   actionBusy: false, demo: false, scenario: 'door', demoPaused: false,
   health: null, backend: null, result: null, lastResultId: null,
-  currentTurn: null, lastAnswer: '', audioAvailable: false, error: '',
+  currentTurn: null, lastAnswer: '', audioRetry: false, error: '',
 };
 let epoch = 0;
 let speech = null;
+let speechStartTimer = null;
 let questionTimer = null;
 let pendingTimer = null;
 let lastSpeechId = null;
@@ -48,13 +51,20 @@ function setStatus(message = '', error = false, urgent = false) {
 }
 
 function stopSpeech() {
+  clearTimeout(speechStartTimer);
+  answerAudio.stop();
+  state.audioRetry = false;
   if ('speechSynthesis' in window) window.speechSynthesis.cancel();
   speech = null;
   $('remoteAudio').muted = shouldMuteRemote();
 }
 
 function speak(text, id = null) {
-  if (!preferences.voice || !text || state.listening || !('speechSynthesis' in window)) return;
+  if (!preferences.voice || !text || state.listening) return;
+  if (!('speechSynthesis' in window)) {
+    setStatus('이 브라우저에서 음성 합성을 사용할 수 없어요.');
+    return;
+  }
   if (id && id === lastSpeechId) return;
   if (id) lastSpeechId = id;
   stopSpeech();
@@ -67,16 +77,84 @@ function speak(text, id = null) {
   $('remoteAudio').muted = true;
   const restore = () => {
     if (speech === utterance) {
+      clearTimeout(speechStartTimer);
       speech = null;
       $('remoteAudio').muted = shouldMuteRemote();
     }
   };
+  utterance.onstart = () => { if (speech === utterance) clearTimeout(speechStartTimer); };
   utterance.onend = restore;
   utterance.onerror = event => {
+    if (speech !== utterance) return;
     restore();
-    if (!['canceled', 'interrupted'].includes(event.error)) setStatus('이 기기에서 음성 읽기를 시작하지 못했어요. 화면의 안내를 확인해 주세요.');
+    if (!['canceled', 'interrupted'].includes(event.error)) offerAudioRetry('음성 읽기를 시작하지 못했어요. 음성 재생을 눌러 다시 시도해 주세요.');
   };
+  speechStartTimer = setTimeout(() => {
+    if (speech !== utterance) return;
+    stopSpeech();
+    offerAudioRetry('음성 읽기가 시작되지 않았어요. 음성 재생을 눌러 다시 시도해 주세요.');
+  }, 4500);
   window.speechSynthesis.speak(utterance);
+}
+
+function offerAudioRetry(message) {
+  if (!preferences.voice || state.listening || state.videoStale) return;
+  state.audioRetry = true;
+  setStatus(message);
+  render();
+}
+
+function answerCanPlay(result) {
+  return preferences.voice && transport.connected && state.result?.id === result.id && !state.listening
+    && !state.videoStale && !state.backend?.last_error && !state.backend?.scene_waiting_for_video;
+}
+
+async function playServerAnswer(result) {
+  const isCurrent = () => answerCanPlay(result);
+  if (!isCurrent()) return;
+  const outcome = await answerAudio.play(signal => transport.getAnswerAudio(result.id, signal), isCurrent);
+  if (!isCurrent() || outcome === 'cancelled') return;
+  if (outcome === 'playing') {
+    state.audioRetry = false;
+    render();
+  } else if (outcome === 'failed') {
+    offerAudioRetry('답변 음성을 가져오지 못했어요. 연결을 확인한 뒤 음성 재생을 눌러 주세요.');
+  } else {
+    offerAudioRetry('답변이 준비됐어요. 소리가 나지 않으면 음성 재생을 눌러 주세요.');
+  }
+}
+
+async function resumeRemoteAudio(reportFailure = false) {
+  const audio = $('remoteAudio');
+  const stream = audio.srcObject;
+  if (!stream) return;
+  audio.muted = shouldMuteRemote();
+  if (audio.muted) return;
+  try {
+    await audio.play();
+    if (reportFailure && audio.srcObject === stream) { state.audioRetry = false; render(); }
+  } catch {
+    if (reportFailure && audio.srcObject === stream) offerAudioRetry('음성을 들으려면 음성 재생을 눌러 주세요.');
+  }
+}
+
+function unlockAnswerAudio() {
+  if (preferences.voice) void answerAudio.unlock();
+  if (!transport.usesHttpAnswerAudio && $('remoteAudio').paused) void resumeRemoteAudio();
+}
+
+function replayAnswer() {
+  if (!preferences.voice || state.listening || state.videoStale) return;
+  const result = state.result;
+  if (result?.audio_source === 'http-wav') {
+    void answerAudio.unlock().then(() => playServerAnswer(result));
+  } else if (state.lastAnswer) {
+    speak(state.lastAnswer);
+    render();
+  } else {
+    unlockAnswerAudio();
+    void resumeRemoteAudio(true);
+  }
 }
 
 function aiConfigured() { return state.backend ? state.backend.ai_configured === true : state.health?.ai_configured === true; }
@@ -216,8 +294,9 @@ function render() {
   $('guideAction').classList.toggle('recover-action', needsRecheck);
   $('resultArea').classList.toggle('warning-result', state.videoStale || (state.demo && state.scenario !== 'door') || state.result?.kind === 'obstacle' || state.result?.kind === 'uncertain' || Boolean(state.backend?.last_error && aiConfigured()));
   $('repeatAction').disabled = !state.lastAnswer || !preferences.voice || state.listening;
-  $('repeatAction').hidden = $('repeatAction').disabled || waiting || state.videoStale;
-  $('audioResume').disabled = state.videoStale || state.listening;
+  $('repeatAction').hidden = $('repeatAction').disabled || waiting || state.videoStale || state.audioRetry;
+  $('audioResume').hidden = !state.audioRetry || !preferences.voice || state.videoStale || state.listening;
+  $('audioResume').disabled = $('audioResume').hidden;
   $('stopAction').disabled = false;
   document.querySelectorAll('[data-mode]').forEach(button => {
     button.setAttribute('aria-pressed', String(button.dataset.mode === state.mode));
@@ -228,7 +307,7 @@ function render() {
   $('returnGuide').disabled = state.videoStale;
   renderPreferences();
   renderConnection();
-  const mainControls = ['quickConnect', 'guideAction', 'questionAction', 'stopAction', 'repeatAction', 'returnGuide'];
+  const mainControls = ['quickConnect', 'guideAction', 'questionAction', 'stopAction', 'audioResume', 'repeatAction', 'returnGuide'];
   if (mainControls.includes(focused?.id) && focused.closest('[hidden]')) {
     mainControls.map($).find(button => !button.disabled && !button.closest('[hidden]'))?.focus({ preventScroll: true });
   }
@@ -339,6 +418,7 @@ async function waitForCameraFrame(token) {
 }
 
 async function guideAction() {
+  unlockAnswerAudio();
   if (state.demo) {
     if (state.scenario === 'door') state.demoPaused = !state.demoPaused;
     else { state.scenario = 'door'; state.demoPaused = false; }
@@ -368,6 +448,7 @@ async function guideAction() {
 
 async function questionAction() {
   if (state.demo) return;
+  unlockAnswerAudio();
   if (state.listening) {
     await finishQuestion();
     return;
@@ -439,12 +520,10 @@ async function stopEverything({ message = '카메라와 연결을 종료했어�
   state.currentTurn = null;
   state.backend = null;
   state.videoStale = false;
-  state.audioAvailable = false;
   state.connection = 'idle';
   if (!keepDemo) state.demo = false;
   $('remoteAudio').pause();
   $('remoteAudio').srcObject = null;
-  $('audioResume').hidden = true;
   render();
   try { await transport.disconnect(false); } catch { /* Local tracks are already stopped. */ }
   if (token !== epoch) return;
@@ -594,11 +673,14 @@ function receiveBackend(next) {
           try { navigator.vibrate?.([200,100,200]); } catch {}
           setStatus('안내를 일시정지했어요. ' + result.text, false, true);
           speak('잠시 멈춰 주세요. ' + result.text, id);
-        } else if (preferences.voice && result.audio_available === false) {
-          speak(result.text, id);
+        } else if (!preferences.voice) {
+          setStatus(result.text);
+        } else {
           setStatus('안내 결과가 도착했어요.');
-        } else if (!preferences.voice) setStatus(result.text);
-        else setStatus('안내 결과가 도착했어요.');
+          if (result.audio_source === 'http-wav') void playServerAnswer(result);
+          else if (result.audio_available === false) speak(result.text, id);
+          else if ($('remoteAudio').paused) void resumeRemoteAudio(true);
+        }
       } else if (result.text) {
         state.lastResultId = id;
         state.questionPending = false;
@@ -613,6 +695,7 @@ transport.addEventListener('status', event => {
   const detail = event.detail || {};
   state.connection = detail.state || state.connection;
   if (detail.health) state.health = detail.health;
+  if (detail.state === 'connected' && !transport.usesHttpAnswerAudio) void resumeRemoteAudio();
   if (detail.message && !state.demo) setStatus(detail.message, ['error', 'failed'].includes(detail.state));
   if (['error', 'failed', 'disconnected', 'closed', 'reconnecting'].includes(detail.state)) {
     setMic(false);
@@ -645,33 +728,31 @@ transport.addEventListener('error', event => {
   setStatus(event.detail?.message || '연결 오류가 발생했어요.', true);
   render();
 });
-transport.addEventListener('audio', async event => {
+transport.addEventListener('audio', event => {
   if (state.demo || !event.detail?.stream) return;
-  state.audioAvailable = true;
   $('remoteAudio').srcObject = event.detail.stream;
-  $('remoteAudio').muted = shouldMuteRemote();
-  try { await $('remoteAudio').play(); $('audioResume').hidden = true; }
-  catch { $('audioResume').hidden = false; setStatus('음성을 들으려면 ‘음성 재생 허용’을 눌러 주세요.'); }
+  if (!transport.usesHttpAnswerAudio) void resumeRemoteAudio();
 });
 
-const connectFromUi = () => operate(async token => {
-  const reconnect = state.videoStale;
-  if (reconnect) {
-    state.backend = null;
-    state.videoStale = false;
-    state.lastResultId = null;
-    state.audioAvailable = false;
-    state.connection = 'connecting';
-    $('remoteAudio').srcObject = null;
-    $('audioResume').hidden = true;
-    releaseMedia();
-    await transport.disconnect(false);
-    if (token !== epoch) return;
-  }
-  if (await ensureConnected(token)) {
-    setStatus(reconnect ? '카메라를 다시 연결했어요. 필요할 때 다시 확인해 주세요.' : 'PC와 연결됐어요. 주변 확인이나 음성 질문을 선택해 주세요.');
-  }
-});
+function connectFromUi() {
+  unlockAnswerAudio();
+  return operate(async token => {
+    const reconnect = state.videoStale;
+    if (reconnect) {
+      state.backend = null;
+      state.videoStale = false;
+      state.lastResultId = null;
+      state.connection = 'connecting';
+      $('remoteAudio').srcObject = null;
+      releaseMedia();
+      await transport.disconnect(false);
+      if (token !== epoch) return;
+    }
+    if (await ensureConnected(token)) {
+      setStatus(reconnect ? '카메라를 다시 연결했어요. 필요할 때 다시 확인해 주세요.' : 'PC와 연결됐어요. 주변 확인이나 음성 질문을 선택해 주세요.');
+    }
+  });
+}
 $('quickConnect').addEventListener('click', connectFromUi);
 $('enableCamera').addEventListener('click', () => operate(token => ensureMedia(token)));
 $('guideAction').addEventListener('click', guideAction);
@@ -684,7 +765,7 @@ $('demoToggle').addEventListener('click', async () => {
   await toggleDemo();
   $('guidePanel').focus();
 });
-$('repeatAction').addEventListener('click', () => { if (state.lastAnswer) speak(state.lastAnswer); });
+$('repeatAction').addEventListener('click', replayAnswer);
 $('returnGuide').addEventListener('click', () => changeMode('scene'));
 document.querySelectorAll('[data-mode]').forEach(button => button.addEventListener('click', async () => {
   await changeMode(button.dataset.mode);
@@ -701,6 +782,7 @@ document.querySelectorAll('[data-scenario]').forEach(button => button.addEventLi
 $('voiceToggle').addEventListener('click', () => {
   preferences.voice = !preferences.voice;
   if (!preferences.voice) stopSpeech();
+  else unlockAnswerAudio();
   savePreferences(preferences);
   render();
   setStatus(preferences.voice ? '음성 안내를 켰어요.' : '음성 안내를 껐어요.');
@@ -716,13 +798,11 @@ $('refreshHealth').addEventListener('click', refreshHealth);
 $('testAudioAction').addEventListener('click', () => operate(async () => {
   stopSpeech();
   if (!preferences.voice) { preferences.voice = true; savePreferences(preferences); renderPreferences(); }
+  void resumeRemoteAudio(true);
   await transport.control('audio.test', state.mode);
   setStatus('연결 확인음을 요청했어요. 이 소리는 통신 테스트용이에요.');
 }));
-$('audioResume').addEventListener('click', async () => {
-  try { $('remoteAudio').muted = shouldMuteRemote(); await $('remoteAudio').play(); $('audioResume').hidden = true; setStatus('음성 재생이 준비됐어요.'); }
-  catch { setStatus('음성을 재생하지 못했어요. 기기 음량과 브라우저 설정을 확인해 주세요.', true); }
-});
+$('audioResume').addEventListener('click', replayAnswer);
 document.querySelectorAll('dialog').forEach(dialog => dialog.addEventListener('click', event => {
   if (event.target !== dialog) return;
   const rectangle = dialog.getBoundingClientRect();
@@ -733,6 +813,7 @@ window.addEventListener('pagehide', () => {
   clearTimeout(questionTimer);
   clearTimeout(pendingTimer);
   stopSpeech();
+  void answerAudio.close();
   setMic(false);
   releaseMedia();
   transport.disconnect().catch(() => {});
