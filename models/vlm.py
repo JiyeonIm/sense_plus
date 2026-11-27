@@ -53,6 +53,20 @@ AI 시각 보조 어시스턴트 SENSE+입니다.
 - 필요한 정보를 생략하지 않는 범위에서 간결하게 답변하세요.
 - 자동 주변 안내의 글자 수 제한을 적용하지 마세요.
 
+[깊이 정보 활용]
+- 보조 센서 정보가 제공되면 이미지와 함께 참고하세요.
+- left, center, right는 각각 화면의 왼쪽, 중앙, 오른쪽입니다.
+- near_m은 해당 영역의 깊이값 중 10번째 백분위수입니다.
+- median_m은 해당 영역 깊이값의 중앙값입니다.
+- 깊이값이 작을수록 상대적으로 가까운 영역을 의미합니다.
+- 영역별 깊이값은 특정 물체까지의 거리를 의미하지 않습니다.
+- 깊이 정보와 이미지 속 객체를 임의로 대응시키지 마세요.
+- 아직 거리 보정이 수행되지 않았으므로 구체적인
+  거리 수치를 음성으로 안내하지 마세요.
+- 깊이 정보만으로 위험 여부를 판단하지 마세요.
+- 깊이 정보가 없거나 이미지와 일치하지 않으면
+  이미지에서 확인되는 정보만 전달하세요.
+
 [위험 판단]
 - 계단, 단차, 열린 구멍, 차량, 차도 경계,
   돌출물, 바닥의 전선, 날카로운 물건 등
@@ -149,7 +163,12 @@ def _parse(raw):
     return {"hazard": hazard, "speak": speak}
 
 
-def analyze_scene(image, question, detail=None):
+def analyze_scene(
+        image,
+        question,
+        detail=None,
+        depth_summary=None
+    ):
     """이미지와 질문을 분석해 {"hazard": ..., "speak": ...}를 돌려준다."""
 
     if image is None:
@@ -158,6 +177,26 @@ def analyze_scene(image, question, detail=None):
     start_time = time.perf_counter()
 
     image_base64 = _to_jpeg_base64(image)
+
+    # Depth 정보를 VLM 입력에 추가
+    if depth_summary is not None:
+
+        depth_text = json.dumps(
+            depth_summary,
+            ensure_ascii=False
+        )
+
+        question = (
+            f"{question}\n\n"
+            "[보조 센서 정보]\n"
+            "다음은 동일한 이미지에서 추정한 "
+            "영역별 Depth 정보입니다.\n"
+            f"{depth_text}\n"
+            "아직 거리 보정이 수행되지 않은 "
+            "깊이 추정값입니다."
+        )
+
+        print(f"[VLM] Depth context: {depth_text}")
 
     extra = {}
     if REASONING_EFFORT:
