@@ -12,6 +12,27 @@ import os
 ROOT = Path(__file__).resolve().parent
 
 
+def get_wifi_ip():
+    command = (
+        "Get-NetIPAddress "
+        "-InterfaceAlias 'Wi-Fi' "
+        "-AddressFamily IPv4 | "
+        "Where-Object {$_.AddressState -eq 'Preferred'} | "
+        "Select-Object -First 1 -ExpandProperty IPAddress"
+    )
+
+    result = subprocess.check_output(
+        [
+            "powershell",
+            "-NoProfile",
+            "-Command",
+            command
+        ],
+        text=True
+    ).strip()
+
+    return private_ip(result)
+
 def private_ip(value):
     ip = ipaddress.IPv4Address(value.strip())
     if not any(ip in ipaddress.ip_network(x) for x in ('10.0.0.0/8','172.16.0.0/12','192.168.0.0/16')):
@@ -65,8 +86,27 @@ def main():
     if os.name == 'nt': subprocess.run(['ipconfig'], check=False)
     else: print('시스템 설정 > Wi-Fi > 세부사항에서 IPv4 주소를 확인하세요.')
     try:
-        ip = private_ip(input('PC Wi-Fi IPv4 주소 입력: '))
-        ca,cert,key=prepare_cert(ip)
+        if os.name == 'nt':
+            try:
+                ip = get_wifi_ip()
+                print(f'[자동 감지] Wi-Fi IPv4: {ip}')
+
+            except Exception:
+                print('Wi-Fi IP 자동 감지 실패')
+                subprocess.run(['ipconfig'], check=False)
+
+                ip = private_ip(
+                    input('PC Wi-Fi IPv4 주소 입력: ')
+                )
+
+        else:
+            print('시스템 설정에서 Wi-Fi IPv4 주소를 확인하세요.')
+
+            ip = private_ip(
+                input('PC Wi-Fi IPv4 주소 입력: ')
+            )
+
+        ca, cert, key = prepare_cert(ip)
     except Exception as e:
         print('휴대폰 연결 설정 실패:',type(e).__name__,str(e)); return 1
     print('\n휴대폰에는 이 공개 인증서 파일만 전달하세요:\n',ca)
