@@ -5,7 +5,7 @@
 ## 팀 인수인계
 
 1. `apps/sense-plus`에서 Windows는 `setup_windows.bat`를 한 번 실행한 뒤 `start_windows.bat`를 실행합니다. Python 3.11 또는 3.12가 필요합니다. Mac과 휴대폰 연결 절차는 [빠른 시작](apps/sense-plus/START_HERE_KO.txt)에 있습니다.
-2. PC 관제는 [127.0.0.1:8766](http://127.0.0.1:8766/), PC에서 여는 사용자 앱은 [127.0.0.1:8765](http://127.0.0.1:8765/)입니다. 휴대폰은 같은 Wi-Fi에서 관제의 QR을 스캔해 HTTPS로 연결합니다.
+2. PC 관제는 [127.0.0.1:8766](http://127.0.0.1:8766/), PC에서 여는 사용자 앱은 [127.0.0.1:8765](http://127.0.0.1:8765/)입니다. iPhone에서 처음 시험할 때는 [iPhone 인증서 설치와 연결](apps/sense-plus/README_KO.md#iphone-인증서-설치와-연결) 순서대로 진행합니다.
 3. 기본 설정은 영상·음성 연결 시험입니다. Windows에서 실제 장면 분석에 쓰는 Ollama, 한국어 STT·TTS 설정은 [모델 연동 규격](apps/sense-plus/docs/INTEGRATION.md#windows-로컬-모델)을 따릅니다.
 
 ## 구현 상태

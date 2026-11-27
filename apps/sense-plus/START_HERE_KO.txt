@@ -12,8 +12,10 @@ SENSE+ v0.2 | 휴대폰 앱과 PC 관제 빠른 시작
 [휴대폰 연결]
 1. PC 모드 서버를 종료하고 start_phone_windows.bat 또는 start_phone_mac.command를 실행합니다.
 2. 같은 Wi-Fi에 연결한 PC의 Wi-Fi IPv4 주소를 입력합니다.
-3. 스크립트가 표시하는 SENSE-test-root.cer 공개 인증서를 테스트 휴대폰에 전달합니다.
-   개발 CA를 테스트 기기에서 신뢰하는 절차는 README_KO.md에 있습니다.
+3. PC에서 생성한 SENSE-test-root.cer 공개 인증서만 각 iPhone에 전달합니다.
+   iPhone에서 파일을 열고 설정의 ‘프로파일이 다운로드됨’ 항목에서 설치합니다.
+   설정 > 일반 > 정보 > 인증서 신뢰 설정에서 해당 SENSE+ 시험 인증서의 전체 신뢰를 켭니다.
+   오류가 나거나 시험을 마쳤다면 README_KO.md의 ‘iPhone 인증서 설치와 연결’을 확인합니다.
 4. 휴대폰 카메라 앱으로 PC 관제의 QR을 스캔해 Safari 또는 Chrome에서 엽니다.
    카메라·마이크 권한을 허용합니다. 서버를 다시 시작했으면 새 QR을 스캔합니다.
 5. 주변 확인을 한 번 누르면 장면이 달라질 때마다 자동 분석합니다.
