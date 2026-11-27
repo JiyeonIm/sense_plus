@@ -3,12 +3,22 @@ import binascii
 import os
 import threading
 import time
+import cv2
+import numpy as np
+
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 from models.vlm import analyze_scene, client as openai_client
 from models.tts import generate_speech
 from models.stt import transcribe_audio
+from models.depth import DepthEstimator
+from core.depth_guide import (
+    summarize_depth,
+    get_center_depth
+)
+
+from concurrent.futures import ThreadPoolExecutor
 
 
 # 서버 TTS 사용 여부
@@ -34,10 +44,32 @@ async def lifespan(app):
 
 app = FastAPI(lifespan=lifespan)
 
+depth_estimator = DepthEstimator(depth_scale=1.0)
+
+depth_executor = ThreadPoolExecutor(max_workers=1)
+
 
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+def analyze_depth(frame):
+    start = time.perf_counter()
+
+    depth_map = depth_estimator.predict(frame)
+
+    summary = summarize_depth(depth_map)
+    center_depth = get_center_depth(depth_map)
+
+    print(f"[Depth] Center ROI: {center_depth} m")
+    
+    elapsed = time.perf_counter() - start
+
+    print(f"[Depth] 추론 시간: {elapsed:.3f}초")
+    print(f"[Depth] Summary: {summary}")
+
+    return summary, round(elapsed * 1000)
 
 
 @app.post("/analyze")
@@ -57,30 +89,64 @@ def analyze(payload: dict):
             detail="이미지가 없습니다."
         )
 
-    # 2. 이미지 확인
-    # 앱이 이미 640x480 JPEG로 보내므로 디코딩/재인코딩 없이 그대로 VLM에 전달한다.
+    # 2. JPEG 데이터 확인
     try:
-        jpeg = base64.b64decode(image_base64, validate=True)
+        jpeg = base64.b64decode(
+            image_base64,
+            validate=True
+        )
     except binascii.Error:
-        raise HTTPException(status_code=400, detail="이미지 디코딩 실패")
+        raise HTTPException(
+            status_code=400,
+            detail="이미지 디코딩 실패"
+        )
 
     if not jpeg.startswith(b"\xff\xd8"):
-        raise HTTPException(status_code=400, detail="JPEG 형식이 아닙니다.")
+        raise HTTPException(
+            status_code=400,
+            detail="JPEG 형식이 아닙니다."
+        )
 
-    print(f"[API] Mode: {mode} / JPEG {len(jpeg) // 1024}KB")
+    # Depth Anything용 이미지 디코딩
+    frame = cv2.imdecode(
+        np.frombuffer(jpeg, dtype=np.uint8),
+        cv2.IMREAD_COLOR
+    )
+
+    if frame is None:
+        raise HTTPException(
+            status_code=400,
+            detail="이미지 디코딩 실패"
+        )
+
+    # Depth 비동기 추론 시작
+    depth_future = depth_executor.submit(
+        analyze_depth,
+        frame
+    )
+
+    print(
+        f"[API] Mode: {mode} / "
+        f"JPEG {len(jpeg) // 1024}KB"
+    )
 
     # 3. 음성 질문 여부에 따른 분기
+    # 이 과정에서 Depth는 병렬 실행 중
     if input_audio_base64:
 
-        # Reactive: 사용자 음성 질문
         t = time.perf_counter()
+
         question = transcribe_audio(input_audio_base64)
-        timings["stt_ms"] = round((time.perf_counter() - t) * 1000)
+
+        timings["stt_ms"] = round(
+            (time.perf_counter() - t) * 1000
+        )
 
         if question:
             question = f"사용자 음성 질문: {question}"
 
     else:
+
         if mode == "read":
             question = "이미지에서 확인할 수 있는 글자를 읽어 줘."
 
@@ -90,41 +156,84 @@ def analyze(payload: dict):
         else:
             question = "자동 주변 안내를 수행해 줘."
 
-    # 4. VLM 호출
+    # 4. Depth 결과 수신
+    try:
+        t = time.perf_counter()
+
+        depth_summary, depth_ms = depth_future.result()
+
+        timings["depth_ms"] = depth_ms
+
+        timings["depth_wait_ms"] = round(
+            (time.perf_counter() - t) * 1000
+        )
+
+    except Exception as exc:
+        print(f"[Depth] Error: {exc}")
+        depth_summary = None
+
+    # 5. VLM 호출 (Depth 정보 포함)
     t = time.perf_counter()
+
     if question:
-        # 글자 읽기는 작은 글씨 판독이 필요하므로 고해상도로 처리
+
         detail = "high" if mode == "read" else None
-        result = analyze_scene(image_base64, question, detail=detail)
+
+        result = analyze_scene(
+            image_base64,
+            question,
+            detail=detail,
+            depth_summary=depth_summary
+        )
+
     else:
-        result = {"hazard": "unknown", "speak": "질문을 알아듣지 못했습니다."}
-    timings["vlm_ms"] = round((time.perf_counter() - t) * 1000)
+
+        result = {
+            "hazard": "unknown",
+            "speak": "질문을 알아듣지 못했습니다."
+        }
+
+    timings["vlm_ms"] = round(
+        (time.perf_counter() - t) * 1000
+    )
 
     answer = result["speak"]
     hazard = result["hazard"]
 
-    # 위험 단서가 있으면 앱에 obstacle로 알림 → 앱이 우선 재생할 수 있음
-    kind = "obstacle" if hazard in ("observed", "possible") else "info"
+    kind = (
+        "obstacle"
+        if hazard in ("observed", "possible")
+        else "info"
+    )
 
     print(f"[VLM] ({kind}) {answer}")
 
-    # 5. TTS 호출
+    # 6. TTS 호출
     output_audio_base64 = None
-    if USE_SERVER_TTS:
-        t = time.perf_counter()
-        output_audio_base64 = generate_speech(answer)
-        timings["tts_ms"] = round((time.perf_counter() - t) * 1000)
 
-    timings["total_ms"] = round((time.perf_counter() - t0) * 1000)
+    if USE_SERVER_TTS:
+
+        t = time.perf_counter()
+
+        output_audio_base64 = generate_speech(answer)
+
+        timings["tts_ms"] = round(
+            (time.perf_counter() - t) * 1000
+        )
+
+    timings["total_ms"] = round(
+        (time.perf_counter() - t0) * 1000
+    )
+
     print(f"[API] 단계별 시간(ms): {timings}")
 
-    # 6. 응답 반환
-    # hazard, timings_ms는 앱이 무시하는 추가 필드 (관제 로그·디버깅용)
+    # 7. 응답 반환
     return {
         "text": answer,
         "kind": kind,
         "direction": "none",
         "audio_wav_base64": output_audio_base64,
         "hazard": hazard,
-        "timings_ms": timings
+        "timings_ms": timings,
+        "depth": depth_summary
     }
