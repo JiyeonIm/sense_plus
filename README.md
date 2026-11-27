@@ -15,6 +15,7 @@
 
 - **휴대폰** — 색과 텍스트로 구분한 큰 버튼으로 주변 확인, 음성 질문, 종료를 조작합니다. 주변 확인은 한 번 누르면 장면이 바뀔 때마다 이어집니다. 영상이 흐리면 안정될 때까지 기다리고, 영상 수신이 끊기면 멈춥니다.
 - **PC 관제** — 영상·음성은 FastRTC/WebRTC로 수신합니다. 카메라 목표는 30fps이며 관제에 실제 수신 FPS, 선택된 분석 프레임, 마이크 파형, 요청·응답 ID, 이벤트 로그와 CSV가 표시됩니다.
+- **iPhone 깊이 시험** — iPhone 15 Pro의 LiDAR와 iPhone 16·17 기본형의 후면 듀얼 카메라 깊이를 iOS 앱에서 확인합니다. [실행 및 실기기 검증 안내](apps/sense-plus-depth-ios/README_KO.md)
 - **로컬 모델** — Ollama의 Qwen3-VL, Whisper small 한국어 전사, Windows Heami 음성을 연결했습니다. 팀 데이터셋과 배포할 STT·TTS 모델이 준비되면 `SpeechToText`, `TextToSpeech`, `AIAdapter` 규격으로 교체할 수 있습니다.
 - **검증 범위** — Windows에서 Python 테스트 49개, Node 테스트 6개를 통과했습니다. 합성 입력과 실제 로컬 모델로 연속 장면 분석과 음성 왕복을 확인했습니다. 최신 iPhone 실기기 음성 왕복, 장시간 수신, VoiceOver·TalkBack, 보행 안전성은 재검증이 필요합니다. [검증 기록](apps/sense-plus/TEST_STATUS.md)
 
