@@ -769,7 +769,18 @@ class SessionManager:
                 turn_id = uuid.uuid4().hex
                 session.busy = True
                 try:
+                    capture_start = time.perf_counter()
+
                     frame = await self.capture_stable_frame(session, generation=generation)
+
+                    print(
+                        f"[Capture] 안정 프레임 확보 시간: "
+                        f"{time.perf_counter() - capture_start:.3f}초"
+                    )
+                    print(
+                        f"[Capture] 프레임 경과 시간: "
+                        f"{time.monotonic() - frame.received_monotonic:.3f}초"
+                    )
                     session.scene_waiting_for_video = False
                     session.last_error = None
                     thumbnail = scene_thumbnail(frame.rgb) if scene else None
