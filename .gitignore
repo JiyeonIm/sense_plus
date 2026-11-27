@@ -1,0 +1,26 @@
+# Virtual environment
+.venv/
+venv/
+
+# API Key
+.env
+.env.*
+!.env.example
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Model weights
+*.pt
+*.onnx
+
+# Test data
+test_images/
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
