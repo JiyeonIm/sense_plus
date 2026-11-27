@@ -14,6 +14,7 @@ const state = {
   actionBusy: false, demo: false, scenario: 'door', demoPaused: false,
   health: null, backend: null, result: null, lastResultId: null,
   currentTurn: null, lastAnswer: '', audioRetry: false, error: '',
+  voiceWakeRequested: false, voiceWakeEnabled: false, voiceWakePhase: 'off',
 };
 let epoch = 0;
 let speech = null;
@@ -22,6 +23,8 @@ let questionTimer = null;
 let pendingTimer = null;
 let lastSpeechId = null;
 let demoChanging = false;
+let autoVoiceAttempted = false;
+let voicePlayback = null;
 
 function acceptScannedPairing() {
   const code = window.sensePairingFromQr;
@@ -54,35 +57,49 @@ function stopSpeech() {
   clearTimeout(speechStartTimer);
   answerAudio.stop();
   state.audioRetry = false;
-  if ('speechSynthesis' in window) window.speechSynthesis.cancel();
   speech = null;
+  if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+  finishVoicePlayback();
+  syncMicrophone();
   $('remoteAudio').muted = shouldMuteRemote();
 }
 
-function speak(text, id = null) {
-  if (!preferences.voice || !text || state.listening) return;
+function speak(text, id = null, replay = false) {
+  if (!preferences.voice || !text || state.listening || voiceQuestionActive()) return;
   if (!('speechSynthesis' in window)) {
     setStatus('이 브라우저에서 음성 합성을 사용할 수 없어요.');
     return;
   }
-  if (id && id === lastSpeechId) return;
+  if (!replay && id && id === lastSpeechId) return;
   if (id) lastSpeechId = id;
   stopSpeech();
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.lang = 'ko-KR';
   utterance.rate = preferences.voiceSpeed;
-  const koreanVoice = window.speechSynthesis.getVoices().find(voice => voice.lang.startsWith('ko'));
+  const localOnly = state.voiceWakeEnabled || voiceWakeAvailable();
+  const koreanVoice = window.speechSynthesis.getVoices().find(voice => voice.lang.toLowerCase().startsWith('ko') && (!localOnly || voice.localService));
+  if (localOnly && !koreanVoice) {
+    setStatus('이 기기의 오프라인 한국어 음성을 사용할 수 없어요. 화면에서 안내를 확인해 주세요.');
+    return;
+  }
   if (koreanVoice) utterance.voice = koreanVoice;
   speech = utterance;
+  syncMicrophone();
   $('remoteAudio').muted = true;
   const restore = () => {
     if (speech === utterance) {
       clearTimeout(speechStartTimer);
       speech = null;
+      finishVoicePlayback(id);
+      syncMicrophone();
       $('remoteAudio').muted = shouldMuteRemote();
     }
   };
-  utterance.onstart = () => { if (speech === utterance) clearTimeout(speechStartTimer); };
+  utterance.onstart = () => {
+    if (speech !== utterance) return;
+    clearTimeout(speechStartTimer);
+    startVoicePlayback(id);
+  };
   utterance.onend = restore;
   utterance.onerror = event => {
     if (speech !== utterance) return;
@@ -98,7 +115,7 @@ function speak(text, id = null) {
 }
 
 function offerAudioRetry(message) {
-  if (!preferences.voice || state.listening || state.videoStale) return;
+  if (!preferences.voice || state.listening || voiceQuestionActive() || state.videoStale) return;
   state.audioRetry = true;
   setStatus(message);
   render();
@@ -106,13 +123,16 @@ function offerAudioRetry(message) {
 
 function answerCanPlay(result) {
   return preferences.voice && transport.connected && state.result?.id === result.id && !state.listening
-    && !state.videoStale && !state.backend?.last_error && !state.backend?.scene_waiting_for_video;
+    && !voiceQuestionActive() && !state.videoStale && !state.backend?.last_error && !state.backend?.scene_waiting_for_video;
 }
 
 async function playServerAnswer(result) {
   const isCurrent = () => answerCanPlay(result);
   if (!isCurrent()) return;
-  const outcome = await answerAudio.play(signal => transport.getAnswerAudio(result.id, signal), isCurrent);
+  const outcome = await answerAudio.play(signal => transport.getAnswerAudio(result.id, signal), isCurrent, {
+    onStart: () => startVoicePlayback(result.id),
+    onEnd: () => finishVoicePlayback(result.id),
+  });
   if (!isCurrent() || outcome === 'cancelled') return;
   if (outcome === 'playing') {
     state.audioRetry = false;
@@ -144,12 +164,12 @@ function unlockAnswerAudio() {
 }
 
 function replayAnswer() {
-  if (!preferences.voice || state.listening || state.videoStale) return;
+  if (!preferences.voice || state.listening || voiceQuestionActive() || state.videoStale) return;
   const result = state.result;
   if (result?.audio_source === 'http-wav') {
     void answerAudio.unlock().then(() => playServerAnswer(result));
   } else if (state.lastAnswer) {
-    speak(state.lastAnswer);
+    speak(state.lastAnswer, result?.id, true);
     render();
   } else {
     unlockAnswerAudio();
@@ -159,9 +179,48 @@ function replayAnswer() {
 
 function aiConfigured() { return state.backend ? state.backend.ai_configured === true : state.health?.ai_configured === true; }
 function sceneRunning() { return !state.demo && state.mode === 'scene' && state.guide === 'active' && aiConfigured(); }
-function shouldMuteRemote() { return !preferences.voice || state.videoStale || state.listening || Boolean(speech) || state.guide === 'paused' || state.connection !== 'connected' || Boolean(state.backend?.last_error && aiConfigured()) || Boolean(state.backend?.scene_waiting_for_video); }
+function voiceWakeAvailable() { return state.health?.voice_wake_available === true && state.health.answer_audio_http === true && answerAudio.supported; }
+function voiceQuestionActive() { return state.voiceWakePhase === 'question' || state.voiceWakePhase === 'processing'; }
+function shouldMuteRemote() { return !preferences.voice || state.videoStale || state.listening || voiceQuestionActive() || Boolean(speech) || state.guide === 'paused' || state.connection !== 'connected' || Boolean(state.backend?.last_error && aiConfigured()) || Boolean(state.backend?.scene_waiting_for_video); }
 function isCameraLive() { return Boolean(state.media?.getVideoTracks().some(track => track.readyState === 'live')); }
 function setMic(enabled) { state.media?.getAudioTracks().forEach(track => { track.enabled = enabled; }); }
+
+function syncMicrophone() {
+  const wakeListening = state.voiceWakeEnabled && !state.questionPending && ['waiting', 'question'].includes(state.voiceWakePhase);
+  setMic(transport.connected && !document.hidden && !state.videoStale && !state.backend?.last_error
+    && !speech && !voicePlayback && (state.listening || wakeListening));
+}
+
+function updateVoiceWake(next) {
+  state.voiceWakeEnabled = state.voiceWakeRequested && next?.voice_wake_enabled === true;
+  state.voiceWakePhase = state.voiceWakeEnabled ? next.voice_wake_phase : 'off';
+  syncMicrophone();
+}
+
+function disarmVoiceWake() {
+  state.voiceWakeRequested = false;
+  updateVoiceWake();
+}
+
+function startVoicePlayback(id) {
+  if (!state.voiceWakeEnabled || !transport.connected || !id) return;
+  const playback = {id, sessionId: transport.sessionId, mode: state.mode};
+  voicePlayback = playback;
+  syncMicrophone();
+  playback.started = transport.control('voice.playback.start', playback.mode, id, {emitState: false}).catch(() => {});
+}
+
+function finishVoicePlayback(id) {
+  const playback = voicePlayback;
+  if (!playback || (id && playback.id !== id)) return;
+  voicePlayback = null;
+  syncMicrophone();
+  void playback.started.then(() => {
+    if (!state.voiceWakeRequested || !transport.connected || transport.sessionId !== playback.sessionId) return;
+    return transport.control('voice.playback.end', playback.mode, playback.id, {emitState: false});
+  }).catch(() => {});
+}
+
 function releaseMedia() {
   state.media?.getTracks().forEach(track => { track.onended = null; track.stop(); });
   state.media = null;
@@ -175,6 +234,10 @@ function renderPreferences() {
   $('voiceToggle').setAttribute('aria-checked', String(preferences.voice));
   $('voiceStateText').textContent = preferences.voice ? '켜짐' : '꺼짐';
   icon($('voiceIcon'), preferences.voice ? 'volume' : 'muted');
+  $('voiceWakeSetting').hidden = !voiceWakeAvailable() && !state.voiceWakeEnabled;
+  $('voiceWakeToggle').setAttribute('aria-checked', String(state.voiceWakeEnabled));
+  $('voiceWakeToggle').disabled = state.actionBusy || state.demo || state.listening;
+  $('voiceWakeStateText').textContent = state.voiceWakeEnabled ? '켜짐' : '꺼짐';
   $('contrastSetting').checked = preferences.contrast;
   document.querySelectorAll('input[name=textSize]').forEach(input => { input.checked = input.value === preferences.textSize; });
   $('voiceSpeed').value = String(preferences.voiceSpeed);
@@ -213,9 +276,14 @@ function resultView() {
   if (state.videoStale) return { label: '영상 수신 중단', title: '안내를 멈췄어요.', body: '카메라 다시 연결을 눌러 주세요.', icon: 'alert' };
   if (state.backend?.last_error && state.backend.mode === state.mode && aiConfigured()) return { label: '안내 보류', title: '지금은 확인하기 어려워요.', body: String(state.backend.last_error), icon: 'alert' };
   if (state.listening) return { label: '음성 질문', title: '듣고 있어요.', body: '말씀을 마치면 ‘말하기 완료’를 눌러 주세요. 20초가 지나면 자동으로 완료돼요.', icon: 'mic' };
+  if (state.voiceWakePhase === 'question') return { label: '헤이 센스', title: '질문을 듣고 있어요.', body: '말씀이 끝나면 답변을 준비해요.', icon: 'mic' };
+  if (state.voiceWakePhase === 'processing') return state.lastResultId
+    ? { label: '답변 대기', title: '질문을 확인하고 있어요.', body: '답변이 준비되면 읽어 드려요.', icon: 'eye' }
+    : { label: '음성 안내 시작', title: '주변 안내를 준비하고 있어요.', body: '', icon: 'volume' };
   if (state.questionPending) return { label: '답변 대기', title: '질문을 확인하고 있어요.', body: '안내가 준비되면 알려드릴게요.', icon: 'eye' };
   if (sceneRunning() && state.backend?.scene_waiting_for_video) return { label: '영상이 안정되기를 기다리는 중', title: '카메라를 잠시 고정해 주세요.', body: '영상이 선명해지면 자동으로 다시 확인해요.', icon: 'camera' };
   if (state.backend?.busy && state.backend.mode === state.mode && state.guide === 'idle' && !state.result) return { label: '화면 확인 중', title: '현재 장면을 확인하고 있어요.', body: '안내가 준비되면 알려드릴게요.', icon: 'eye' };
+  if (state.result?.source === 'startup') return { label: '음성 안내 시작', title: state.result.text, body: '“헤이 센스, 내 앞에 뭐가 있어?”라고 말해 보세요.', icon: 'volume' };
   if (state.result?.source === 'ai') return { label: state.result.kind === 'obstacle' ? '장애물 알림' : state.result.kind === 'uncertain' ? '확인하기 어려운 상황' : sceneRunning() ? '주변 확인 중' : '안내 결과', title: state.result.text, body: '', icon: state.result.kind === 'obstacle' ? 'alert' : state.result.kind === 'uncertain' ? 'camera' : 'eye' };
   if (state.guide === 'paused') return { label: '안내 일시정지', title: '잠시 멈춰 있어요.', body: '준비되면 안내를 이어갈 수 있어요.', icon: 'pause' };
   if (state.guide === 'active' && !aiConfigured()) return { label: 'AI 연결 전', title: '영상·음성 통신 시험 중', body: '주변 분석과 이동 안내는 AI 연결 후 사용할 수 있어요.', icon: 'link' };
@@ -231,7 +299,8 @@ function render() {
   const view = resultView();
   const needsRecheck = state.demo ? state.scenario !== 'door' : ['uncertain', 'obstacle'].includes(state.result?.kind);
   const checkingOnce = !sceneRunning() && aiConfigured() && state.backend?.mode === state.mode && (state.backend.busy || state.backend.guide_active);
-  const waiting = state.actionBusy || checkingOnce || state.questionPending;
+  const waiting = state.actionBusy || checkingOnce || state.questionPending || voiceQuestionActive();
+  const canStartVoice = voiceWakeAvailable() && preferences.voice && state.mode === 'scene' && !state.voiceWakeEnabled;
   const hasSession = state.demo || live || transport.connected || state.videoStale || waiting || state.listening;
   $('camera').hidden = !live || state.demo;
   $('cameraPlaceholder').hidden = live || state.demo;
@@ -245,14 +314,18 @@ function render() {
   $('cameraOverlayText').textContent = state.demo ? scenarios[state.scenario].overlay : '현재 비추는 방향을 확인해요';
   $('cameraStatus').querySelector('span').textContent = state.demo ? '시연용 가상 장면' : live ? '카메라 켜짐' : state.camera === 'requesting' ? '권한 요청 중' : '카메라 꺼짐';
   $('cameraStatus').classList.toggle('active', live);
-  $('micStatus').querySelector('span').textContent = state.demo ? '마이크 사용 안 함' : state.listening ? '마이크 입력 중' : live ? '마이크 대기' : '마이크 꺼짐';
-  $('micStatus').classList.toggle('recording', state.listening);
+  const micTransmitting = state.media?.getAudioTracks().some(track => track.enabled) === true;
+  let micLabel = live ? '마이크 대기' : '마이크 꺼짐';
+  if (state.demo) micLabel = '마이크 사용 안 함';
+  else if (micTransmitting) micLabel = state.listening || state.voiceWakePhase === 'question' ? '질문 듣는 중' : '헤이 센스 대기 중';
+  $('micStatus').querySelector('span').textContent = micLabel;
+  $('micStatus').classList.toggle('recording', micTransmitting);
   $('enableCamera').disabled = state.actionBusy || state.camera === 'requesting' || needsQr;
   $('switchCamera').disabled = !live || state.actionBusy || state.listening || state.demo;
   if (state.demo) $('pageTitle').textContent = state.demoPaused ? '안내 일시정지' : scenarios[state.scenario].title;
   else $('pageTitle').textContent = state.mode === 'scene' ? '주변 확인' : mode.name;
   $('introText').hidden = Boolean(view) || needsQr;
-  if (!view) $('introText').textContent = state.mode === 'scene' ? '멈춰서 주변을 비춰 주세요. 한 번 누르면 계속 확인해요.' : mode.intro;
+  if (!view) $('introText').textContent = state.mode === 'scene' ? canStartVoice ? '주변을 비춰 주세요. 시작한 뒤 “헤이 센스”라고 부르면 질문할 수 있어요.' : '멈춰서 주변을 비춰 주세요. 한 번 누르면 계속 확인해요.' : mode.intro;
   $('guidePanel').classList.toggle('has-result', Boolean(view));
   $('guidePanel').classList.toggle('is-obstacle', state.demo ? state.scenario === 'obstacle' : state.result?.kind === 'obstacle');
   $('resultArea').hidden = !view;
@@ -264,7 +337,7 @@ function render() {
     $('resultDirectionText').textContent = view.direction || '';
     icon($('resultIcon'), view.icon);
   }
-  $('listeningBars').hidden = !state.listening;
+  $('listeningBars').hidden = !state.listening && state.voiceWakePhase !== 'question';
   $('serviceNotice').hidden = state.demo || aiConfigured() || needsQr || Boolean(view) || state.health?.mode === 'preview';
   $('serviceNoticeText').textContent = state.health ? 'AI 연결 전이에요. 영상과 음성 전송을 시험할 수 있어요.' : state.connection === 'error' ? '서버 상태를 확인할 수 없어요.' : '연결 상태 확인 중';
   $('demoControls').hidden = !state.demo;
@@ -276,20 +349,24 @@ function render() {
   let actionIcon = state.mode === 'scene' ? 'eye' : 'play';
   if (state.actionBusy) { actionLabel = '준비 중'; actionIcon = 'link'; }
   else if (state.demo) { actionLabel = state.scenario === 'uncertain' ? '카메라 다시 확인' : state.demoPaused ? '안내 계속' : state.scenario === 'door' ? '일시정지' : '다시 확인'; actionIcon = state.demoPaused ? 'play' : state.scenario === 'door' ? 'pause' : 'repeat'; }
+  else if (canStartVoice) { actionLabel = '카메라·마이크로 시작'; actionIcon = 'camera'; }
   else if (needsRecheck) { actionLabel = state.result.kind === 'uncertain' ? '카메라 다시 확인' : '다시 확인'; actionIcon = 'repeat'; }
   else if (state.guide === 'active' && state.mode === 'guide') { actionLabel = '일시정지'; actionIcon = 'pause'; }
   else if (state.guide === 'paused' && state.mode === 'guide') { actionLabel = '안내 계속'; actionIcon = 'play'; }
   $('guideActionLabel').textContent = actionLabel;
   icon($('guideActionIcon'), actionIcon);
-  $('questionAction').hidden = needsQr || state.videoStale || state.demo || waiting;
-  $('questionAction').disabled = $('questionAction').hidden;
+  $('questionAction').hidden = needsQr || state.videoStale || state.demo || (waiting && !state.listening);
+  $('questionAction').disabled = $('questionAction').hidden || state.actionBusy;
   $('questionActionLabel').textContent = state.listening ? '말하기 완료' : '음성 질문';
   icon($('questionActionIcon'), state.listening ? 'check' : 'mic');
   $('sessionActions').hidden = !hasSession || needsQr;
   $('pairingPanel').hidden = !needsQr;
   $('quickConnect').hidden = needsQr || state.demo || !state.videoStale || state.actionBusy;
   $('quickConnect').disabled = $('quickConnect').hidden;
-  $('privacyNote').hidden = needsQr || state.demo || hasSession;
+  $('privacyNote').hidden = needsQr || state.demo || (hasSession && !state.voiceWakeEnabled);
+  $('privacyNote').textContent = state.voiceWakeEnabled
+    ? '“헤이 센스”라고 부르면 질문할 수 있어요. 마이크 음성은 PC로 전송돼요.'
+    : canStartVoice ? '시작하면 카메라 영상과 마이크 음성을 PC로 보내요.' : '영상은 PC로, 음성은 질문할 때 전송해요.';
   $('guideAction').classList.toggle('pause-action', !needsRecheck && (state.guide === 'active' || (state.demo && !state.demoPaused)));
   $('guideAction').classList.toggle('recover-action', needsRecheck);
   $('resultArea').classList.toggle('warning-result', state.videoStale || (state.demo && state.scenario !== 'door') || state.result?.kind === 'obstacle' || state.result?.kind === 'uncertain' || Boolean(state.backend?.last_error && aiConfigured()));
@@ -321,7 +398,6 @@ async function operate(task) {
   try { await task(token); }
   catch (error) {
     if (token === epoch) {
-      setMic(false);
       state.listening = false;
       state.questionPending = false;
       stopSpeech();
@@ -338,7 +414,9 @@ async function ensureMedia(token = epoch) {
   if (isCameraLive()) return state.media;
   if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) throw new Error('카메라·마이크를 사용하려면 HTTPS 주소로 접속해 주세요. 컴퓨터에서는 localhost로 확인할 수 있어요.');
   state.camera = 'requesting';
-  setStatus('카메라·마이크 권한을 허용해 주세요. 질문할 때만 마이크 입력을 전송해요.');
+  setStatus(state.voiceWakeRequested
+    ? '카메라·마이크를 허용해 주세요. PC에서 “헤이 센스”를 기다려요.'
+    : '카메라·마이크를 허용해 주세요. 마이크 입력은 질문을 시작할 때 전송해요.');
   render();
   let stream;
   try {
@@ -367,7 +445,7 @@ async function ensureMedia(token = epoch) {
     };
   });
   try { await $('camera').play(); } catch { /* Browser may finish starting playback after metadata loads. */ }
-  setStatus('카메라가 준비됐어요. 마이크는 질문을 시작하면 켜져요.');
+  setStatus('카메라가 준비됐어요.');
   render();
   return stream;
 }
@@ -417,7 +495,64 @@ async function waitForCameraFrame(token) {
   throw new Error('영상이 아직 도착하지 않았어요. 카메라를 확인한 뒤 다시 시도해 주세요.');
 }
 
+async function startVoiceWake(token) {
+  state.voiceWakeRequested = true;
+  try {
+    if (!await ensureConnected(token) || !await waitForCameraFrame(token)) return;
+    stopSpeech();
+    state.mode = 'scene';
+    state.currentTurn = null;
+    state.result = null;
+    state.lastAnswer = '';
+    state.lastResultId = null;
+    setStatus('음성으로 주변 안내를 시작하는 중이에요.');
+    await transport.control('voice.enable', 'scene');
+    if (token === epoch && !state.voiceWakeEnabled) {
+      throw new Error('음성 호출을 시작하지 못했어요. 다시 시도해 주세요.');
+    }
+  } finally {
+    if (token === epoch && !state.voiceWakeEnabled) disarmVoiceWake();
+  }
+}
+
+async function maybeStartVoiceWake() {
+  if (autoVoiceAttempted || !voiceWakeAvailable() || !preferences.voice || pairingNeeded()
+      || !window.isSecureContext || !navigator.mediaDevices?.getUserMedia || !window.RTCPeerConnection
+      || document.hidden || state.demo || state.actionBusy || state.mode !== 'scene') return;
+  autoVoiceAttempted = true;
+  const token = epoch;
+  // Only start capture automatically when the browser can also play the opening announcement.
+  if (!await answerAudio.unlock() || token !== epoch || document.hidden || state.demo || state.actionBusy || state.mode !== 'scene') return;
+  await operate(startVoiceWake);
+}
+
+async function toggleVoiceWake() {
+  if ((!voiceWakeAvailable() && !state.voiceWakeEnabled) || state.actionBusy || state.demo || state.listening) return;
+  autoVoiceAttempted = true;
+  if (state.voiceWakeEnabled) {
+    await operate(async token => {
+      disarmVoiceWake();
+      stopSpeech();
+      if (transport.connected) await transport.control('voice.disable', state.mode);
+      if (token === epoch) {
+        state.result = null;
+        state.lastAnswer = '';
+        setStatus('헤이 센스를 껐어요. 음성 질문 버튼은 계속 쓸 수 있어요.');
+      }
+    });
+    return;
+  }
+  if (!preferences.voice) {
+    preferences.voice = true;
+    savePreferences(preferences);
+  }
+  unlockAnswerAudio();
+  $('settingsDialog').close();
+  await operate(startVoiceWake);
+}
+
 async function guideAction() {
+  autoVoiceAttempted = true;
   unlockAnswerAudio();
   if (state.demo) {
     if (state.scenario === 'door') state.demoPaused = !state.demoPaused;
@@ -428,6 +563,15 @@ async function guideAction() {
     return;
   }
   await operate(async token => {
+    if (!state.health) {
+      const health = transport.health || await transport.checkHealth();
+      if (token !== epoch) return;
+      state.health = health;
+    }
+    if (voiceWakeAvailable() && preferences.voice && state.mode === 'scene' && !state.voiceWakeEnabled) {
+      await startVoiceWake(token);
+      return;
+    }
     if (!await ensureConnected(token)) return;
     if (!await waitForCameraFrame(token)) return;
     if (sceneRunning()) return;
@@ -448,11 +592,13 @@ async function guideAction() {
 
 async function questionAction() {
   if (state.demo) return;
+  autoVoiceAttempted = true;
   unlockAnswerAudio();
   if (state.listening) {
     await finishQuestion();
     return;
   }
+  if (voiceQuestionActive()) return;
   const focusQuestion = document.activeElement === $('questionAction');
   await operate(async token => {
     if (!await ensureConnected(token)) return;
@@ -468,7 +614,7 @@ async function questionAction() {
     state.guide = 'idle';
     state.questionPending = false;
     state.result = null;
-    setMic(true);
+    syncMicrophone();
     setStatus('듣고 있어요. 말씀을 마치면 말하기 완료를 눌러 주세요. 최대 20초 후 자동으로 완료돼요.');
     clearTimeout(questionTimer);
     questionTimer = setTimeout(() => { if (state.listening) finishQuestion(); }, 20000);
@@ -505,13 +651,15 @@ async function finishQuestion() {
 
 async function stopEverything({ message = '카메라와 연결을 종료했어요.', keepDemo = false } = {}) {
   const token = ++epoch;
+  autoVoiceAttempted = true;
   clearTimeout(questionTimer);
   clearTimeout(pendingTimer);
+  state.listening = false;
+  disarmVoiceWake();
   stopSpeech();
   setMic(false);
   releaseMedia();
   state.guide = 'idle';
-  state.listening = false;
   state.questionPending = false;
   state.actionBusy = true;
   state.result = null;
@@ -533,8 +681,11 @@ async function stopEverything({ message = '카메라와 연결을 종료했어�
 }
 
 async function switchCamera() {
+  unlockAnswerAudio();
   await operate(async token => {
     const wasConnected = transport.connected;
+    const resumeWake = state.voiceWakeEnabled;
+    disarmVoiceWake();
     stopSpeech();
     state.guide = 'idle';
     state.result = null;
@@ -547,6 +698,7 @@ async function switchCamera() {
     state.facing = state.facing === 'environment' ? 'user' : 'environment';
     await ensureMedia(token);
     if (wasConnected && token === epoch) await ensureConnected(token);
+    if (resumeWake && token === epoch) { await startVoiceWake(token); return; }
     if (token === epoch) setStatus('카메라를 전환했어요. 준비되면 안내를 다시 시작해 주세요.');
   });
 }
@@ -577,8 +729,9 @@ async function toggleDemo() {
 }
 
 async function changeMode(mode) {
-  if (state.actionBusy || state.listening || state.questionPending || state.demo) return;
+  if (state.actionBusy || state.listening || state.questionPending || voiceQuestionActive() || state.demo) return;
   await operate(async token => {
+    disarmVoiceWake();
     stopSpeech();
     state.guide = 'paused';
     state.result = null;
@@ -601,7 +754,7 @@ function receiveBackend(next) {
   state.backend = next;
   if (state.videoStale) { render(); return; }
   if (transport.connected && next.video_frames > 0 && next.last_video_age_ms > VIDEO_STALE_MS) {
-    const hadWork = state.guide !== 'idle' || state.listening || state.questionPending
+    const hadWork = state.guide !== 'idle' || state.listening || state.questionPending || state.voiceWakeRequested
       || next.guide_active || next.question_recording || next.question_draining || next.busy;
     ++epoch;
     state.videoStale = true;
@@ -609,6 +762,7 @@ function receiveBackend(next) {
     state.guide = 'idle';
     state.listening = false;
     state.questionPending = false;
+    disarmVoiceWake();
     state.result = null;
     state.lastAnswer = '';
     state.currentTurn = null;
@@ -620,6 +774,12 @@ function receiveBackend(next) {
     if (hadWork) void transport.control('guide.stop', state.mode).catch(() => {});
     render();
     return;
+  }
+  const previousVoicePhase = state.voiceWakePhase;
+  updateVoiceWake(next);
+  if (state.voiceWakePhase === 'question' && previousVoicePhase !== 'question' && !state.listening) {
+    stopSpeech();
+    setStatus('질문을 듣고 있어요.');
   }
   if (state.mode === 'scene' && next.mode === 'scene') {
     state.guide = next.paused ? 'paused' : next.guide_active && aiConfigured() ? 'active' : 'idle';
@@ -657,10 +817,10 @@ function receiveBackend(next) {
   if (result && typeof result.text === 'string') {
     const id = result.id || `${result.turn_id || ''}:${result.created_at || ''}:${result.text}`;
     if (id !== state.lastResultId && result.mode === state.mode && next.mode === state.mode) {
-      if (result.source === 'ai') {
-        const currentTurnMatches = Boolean(result.turn_id && ((result.turn_id === next.current_turn_id && (!state.currentTurn || result.turn_id === state.currentTurn))
+      if (result.source === 'ai' || result.source === 'startup') {
+        const currentTurnMatches = result.source === 'startup' ? state.voiceWakeEnabled : Boolean(result.turn_id && ((result.turn_id === next.current_turn_id && (!state.currentTurn || result.turn_id === state.currentTurn))
           || (result.scene_observation && sceneRunning() && !state.currentTurn)));
-        if (!transport.connected || state.connection !== 'connected' || state.listening || state.guide === 'paused' || !currentTurnMatches) { render(); return; }
+        if (!transport.connected || state.connection !== 'connected' || state.listening || voiceQuestionActive() || state.guide === 'paused' || !currentTurnMatches) { render(); return; }
         state.lastResultId = id;
         state.result = result;
         state.lastAnswer = result.text;
@@ -676,7 +836,8 @@ function receiveBackend(next) {
         } else if (!preferences.voice) {
           setStatus(result.text);
         } else {
-          setStatus('안내 결과가 도착했어요.');
+          if (result.source === 'startup') setStatus(result.audio_available ? result.text : '시작 음성을 준비하지 못했어요. 화면에서 헤이 센스 사용 방법을 확인해 주세요.');
+          else setStatus('안내 결과가 도착했어요.');
           if (result.audio_source === 'http-wav') void playServerAnswer(result);
           else if (result.audio_available === false) speak(result.text, id);
           else if ($('remoteAudio').paused) void resumeRemoteAudio(true);
@@ -698,9 +859,10 @@ transport.addEventListener('status', event => {
   if (detail.state === 'connected' && !transport.usesHttpAnswerAudio) void resumeRemoteAudio();
   if (detail.message && !state.demo) setStatus(detail.message, ['error', 'failed'].includes(detail.state));
   if (['error', 'failed', 'disconnected', 'closed', 'reconnecting'].includes(detail.state)) {
-    setMic(false);
     state.listening = false;
     state.questionPending = false;
+    if (detail.state === 'reconnecting') updateVoiceWake();
+    else disarmVoiceWake();
     if (state.guide === 'active') state.guide = 'paused';
     state.result = null;
     state.lastAnswer = '';
@@ -716,8 +878,8 @@ transport.addEventListener('state', event => receiveBackend(event.detail));
 transport.addEventListener('error', event => {
   state.connection = 'error';
   state.questionPending = false;
-  setMic(false);
   state.listening = false;
+  disarmVoiceWake();
   state.result = null;
   state.lastAnswer = '';
   state.currentTurn = null;
@@ -735,6 +897,7 @@ transport.addEventListener('audio', event => {
 });
 
 function connectFromUi() {
+  autoVoiceAttempted = true;
   unlockAnswerAudio();
   return operate(async token => {
     const reconnect = state.videoStale;
@@ -754,7 +917,10 @@ function connectFromUi() {
   });
 }
 $('quickConnect').addEventListener('click', connectFromUi);
-$('enableCamera').addEventListener('click', () => operate(token => ensureMedia(token)));
+$('enableCamera').addEventListener('click', () => {
+  autoVoiceAttempted = true;
+  void operate(token => ensureMedia(token));
+});
 $('guideAction').addEventListener('click', guideAction);
 $('questionAction').addEventListener('click', questionAction);
 $('switchCamera').addEventListener('click', switchCamera);
@@ -787,6 +953,7 @@ $('voiceToggle').addEventListener('click', () => {
   render();
   setStatus(preferences.voice ? '음성 안내를 켰어요.' : '음성 안내를 껐어요.');
 });
+$('voiceWakeToggle').addEventListener('click', toggleVoiceWake);
 $('settingsTrigger').addEventListener('click', () => $('settingsDialog').showModal());
 $('settingsDone').addEventListener('click', () => $('settingsDialog').close());
 $('contrastSetting').addEventListener('change', event => { preferences.contrast = event.target.checked; savePreferences(preferences); renderPreferences(); });
@@ -810,6 +977,9 @@ document.querySelectorAll('dialog').forEach(dialog => dialog.addEventListener('c
 }));
 window.addEventListener('pagehide', () => {
   epoch += 1;
+  autoVoiceAttempted = true;
+  state.listening = false;
+  disarmVoiceWake();
   clearTimeout(questionTimer);
   clearTimeout(pendingTimer);
   stopSpeech();
@@ -820,14 +990,16 @@ window.addEventListener('pagehide', () => {
 });
 document.addEventListener('visibilitychange', () => {
   if (document.hidden && state.listening) finishQuestion();
+  syncMicrophone();
 });
 window.addEventListener('hashchange', () => {
   if (!acceptScannedPairing()) return;
-  if (!transport.connected) setStatus(transport.hasPairingCode ? 'QR을 확인했어요. 주변 확인이나 음성 질문을 눌러 주세요.' : PAIRING_REQUIRED_MESSAGE);
+  if (!transport.connected) setStatus(transport.hasPairingCode ? 'QR을 확인했어요. 시작 버튼에서 카메라와 마이크를 연결할 수 있어요.' : PAIRING_REQUIRED_MESSAGE);
   render();
+  void maybeStartVoiceWake();
 });
 window.addEventListener('pageshow', event => {
   if (event.persisted) stopEverything({ message: '페이지로 돌아왔어요. 카메라와 연결을 다시 시작해 주세요.' });
 });
 render();
-refreshHealth();
+void refreshHealth().then(maybeStartVoiceWake);

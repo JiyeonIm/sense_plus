@@ -99,6 +99,28 @@ test('playback rechecks the current answer and context after decoding', async ()
   assert.equal(context.sources.length, 0);
 });
 
+test('playback callbacks reflect real start, finish and early stop exactly once', async () => {
+  const context = fakeContext();
+  const player = new AnswerAudio(() => context);
+  const callbacks = [];
+  const playback = {onStart: () => callbacks.push('start'), onEnd: () => callbacks.push('end')};
+  const load = async () => new ArrayBuffer(12);
+
+  assert.equal(await player.play(load, () => true, playback), 'blocked');
+  assert.deepEqual(callbacks, []);
+  await player.unlock();
+  assert.equal(await player.play(load, () => true, playback), 'playing');
+  context.sources[0].onended();
+  player.stop();
+  assert.deepEqual(callbacks, ['start', 'end']);
+
+  assert.equal(await player.play(load, () => true, playback), 'playing');
+  const staleEnd = context.sources[1].onended;
+  player.stop();
+  staleEnd();
+  assert.deepEqual(callbacks, ['start', 'end', 'start', 'end']);
+});
+
 test('callback decoding is supported and media failures are reported separately', async () => {
   const context = fakeContext();
   const player = new AnswerAudio(() => context);

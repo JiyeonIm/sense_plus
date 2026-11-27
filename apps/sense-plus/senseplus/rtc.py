@@ -123,6 +123,7 @@ class SenseHandler(AsyncAudioVideoStreamHandler):
         self._video_ready.set()
         if session:
             session.transport = "disconnected"
+            session.voice_wake_enabled = False
             session.cancel_pending_capture()
             self.manager.event("rtc.disconnected", session)
             session.guide_active = False

@@ -24,7 +24,11 @@ logger = logging.getLogger(__name__)
 
 class Control(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    action: Literal["guide.start", "guide.pause", "guide.resume", "guide.stop", "question.start", "question.end", "audio.test"]
+    action: Literal[
+        "guide.start", "guide.pause", "guide.resume", "guide.stop",
+        "question.start", "question.end", "audio.test",
+        "voice.enable", "voice.disable", "voice.playback.start", "voice.playback.end",
+    ]
     mode: Literal["guide", "scene", "find", "read"] = "guide"
     turn_id: str | None = Field(default=None, max_length=80, pattern=r"^[a-zA-Z0-9_-]+$")
 
@@ -104,6 +108,7 @@ def create_app(config: Config | None = None, manager: SessionManager | None = No
             "rtc_available": rtc is not None,
             "video_uplink_only": rtc is not None,
             "answer_audio_http": True,
+            "voice_wake_available": rtc is not None and manager.voice_wake_available,
             "ai_configured": manager.ai_configured,
             "answer_wait_ms": max(30_000, round(config.ai_timeout * 1000) + config.audio_tail_ms + 5_000),
             "mode": "live",

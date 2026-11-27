@@ -119,6 +119,10 @@
       <label class="setting-group" for="voiceSpeed"><span class="setting-label">음성 속도 <output id="voiceSpeedValue" for="voiceSpeed">1.0배</output></span><input id="voiceSpeed" type="range" min="0.7" max="1.3" step="0.1" value="1"><span class="range-labels"><span>천천히</span><span>빠르게</span></span></label>
       <p class="settings-note">글자 크기와 화면 설정은 이 브라우저에 저장돼요. 음성 속도는 브라우저가 읽어주는 안내에 적용돼요.</p>
       <div class="voice-row"><div><svg class="icon" id="voiceIcon" aria-hidden="true"><use href="#i-volume"/></svg><span>음성 안내</span></div><button class="switch-control" id="voiceToggle" role="switch" aria-checked="true" aria-label="음성 안내"><span id="voiceStateText">켜짐</span><span class="switch-track" aria-hidden="true"><span></span></span></button></div>
+      <div id="voiceWakeSetting" hidden>
+        <div class="voice-row"><div><svg class="icon" aria-hidden="true"><use href="#i-mic"/></svg><span>헤이 센스 음성 질문</span></div><button class="switch-control" id="voiceWakeToggle" role="switch" aria-checked="false" aria-label="헤이 센스 음성 질문" aria-describedby="voiceWakeNote"><span id="voiceWakeStateText">꺼짐</span><span class="switch-track" aria-hidden="true"><span></span></span></button></div>
+        <p class="settings-note" id="voiceWakeNote">켜면 마이크 음성을 PC로 보내 호출어와 질문을 인식해요.</p>
+      </div>
       <button class="connection-trigger" id="connectionTrigger" aria-haspopup="dialog"><span>연결 상태</span><span class="status-dot" id="connectionDot" aria-hidden="true"></span><span id="connectionLabel">연결 확인 중</span></button>
       <details class="camera-disclosure" id="cameraDisclosure"><summary>카메라 미리보기와 시연</summary>
       <section class="camera-panel" aria-labelledby="cameraTitle">
@@ -130,7 +134,7 @@
             <h3>주변을 비춰 주세요</h3>
             <p>카메라를 켜면 이곳에 <br>실시간 화면이 보여요.</p>
             <button class="button button-small button-primary" id="enableCamera"><svg class="icon"><use href="#i-camera"/></svg>카메라 켜기</button>
-            <span class="permission-note">카메라·마이크 접근을 요청해요.<br>마이크는 질문할 때만 사용해요.</span>
+            <span class="permission-note">카메라·마이크 접근을 요청해요.<br>헤이 센스가 켜져 있으면 호출어를 듣기 위해 마이크를 사용해요.</span>
           </div>
           <div class="demo-scene" id="demoScene" hidden aria-label="디자인 시연용 가상 실내 장면">
             <svg viewBox="0 0 800 650" role="img" aria-label="실제 카메라가 아닌 시연용 복도 그림" preserveAspectRatio="xMidYMid slice">
