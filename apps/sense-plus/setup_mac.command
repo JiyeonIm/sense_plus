@@ -28,5 +28,5 @@ fi
 
 .venv/bin/python -c 'import sys; assert sys.version_info[:2] in ((3, 11), (3, 12)), "Python 3.11/3.12 required"' || sense_fail
 .venv/bin/python -m pip install -r requirements.txt || sense_fail
-printf '\n설치 완료. start_mac.command를 실행하면 됩니다.\n유료 AI API는 호출하지 않았습니다.\n'
+printf '\n설치 완료.\niPhone 연결 및 QR 표시 - start_phone_mac.command\nPC에서만 시험 - start_mac.command\n유료 AI API는 호출하지 않았습니다.\n'
 read -r -p 'Enter를 누르면 닫습니다. ' sense_reply

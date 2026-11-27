@@ -21,23 +21,22 @@
 
 1. 저장소를 내려받고 `apps/sense-plus` 폴더를 엽니다.
 2. `setup_windows.bat`를 더블클릭합니다. 처음 한 번만 실행하면 됩니다.
-3. `설치 완료`가 보이면 창을 닫고 `start_windows.bat`를 더블클릭합니다.
-4. 서버가 준비되면 브라우저가 열립니다. 열리지 않으면 직접 `http://127.0.0.1:8765`에 접속합니다.
-5. 카메라·마이크 권한을 허용하고 화면의 연결 기능을 확인합니다.
+3. `설치 완료`가 보이면 창을 닫고 실행 파일을 고릅니다. **iPhone 연결 및 QR**은 `start_phone_windows.bat`, **PC 단독 시험**은 `start_windows.bat`를 더블클릭합니다.
+4. PC 관제가 자동으로 열리지 않으면 브라우저 주소창에 `http://127.0.0.1:8766/`을 직접 입력합니다. PC에서 사용자 앱을 시험할 주소는 `http://127.0.0.1:8765/`입니다.
 
 설치 파일은 이 폴더 안의 `.venv`라는 독립 Python 환경에 필요한 패키지만 설치합니다. 관리자 권한, 재부팅, Python 자동 설치, 유료 AI 호출은 수행하지 않습니다. Python이 없거나 버전이 다르면 설치를 멈추고 안내합니다.
 
 Python을 수동으로 설치해야 한다면 [Python 공식 다운로드](https://www.python.org/downloads/)에서 3.12 또는 3.11을 선택하세요. 설치 후 `setup_windows.bat`를 다시 실행합니다.
 
-**서버를 켠 터미널 창은 실행 중 계속 열어 두세요.** 종료하려면 그 창에서 `Ctrl+C`를 누릅니다. 다음 실행부터는 `start_windows.bat`만 사용하면 됩니다.
+**서버를 켠 터미널 창은 실행 중 계속 열어 두세요.** PC 단독 시험에서 휴대폰 모드로 바꾸려면 그 창에서 `Ctrl+C`를 누른 뒤 `start_phone_windows.bat`를 실행합니다.
 
 ## 2. Mac에서 시작하기
 
 Python 3.11 또는 3.12가 필요합니다. `apps/sense-plus` 폴더에서 아래 순서로 실행합니다.
 
 1. `setup_mac.command`를 실행합니다.
-2. 설치 완료 후 `start_mac.command`를 실행합니다.
-3. 브라우저에서 `http://127.0.0.1:8765`를 확인합니다.
+2. iPhone 연결 및 QR은 `start_phone_mac.command`, PC 단독 시험은 `start_mac.command`를 실행합니다.
+3. PC 관제가 자동으로 열리지 않으면 브라우저 주소창에 `http://127.0.0.1:8766/`을 직접 입력합니다.
 
 더블클릭 실행이 안 되면, 해당 폴더에서 터미널을 열고 다음 명령으로 실행할 수 있습니다.
 
@@ -110,7 +109,7 @@ GitHub에는 앱 소스와 실행 안내가 있습니다. 수업에서 iPhone으
 
 **시연 PC에서 준비하는 법**
 
-`apps/sense-plus`에서 Windows는 `start_phone_windows.bat`, Mac은 `start_phone_mac.command`를 실행하고 시연 PC의 Wi-Fi IPv4 주소를 입력합니다. 앱은 관제 화면에 QR을 표시합니다. 다른 PC에서 시연할 때는 터미널에 표시된 `phone-certs/<PC의 IPv4>/SENSE-test-root.cer`를 전달합니다. `server-key.pem`은 해당 PC에 보관합니다.
+기존 SENSE+ 서버가 켜져 있으면 해당 터미널에서 `Ctrl+C`를 누릅니다. `apps/sense-plus`에서 Windows는 `start_phone_windows.bat`, Mac은 `start_phone_mac.command`를 실행합니다. Windows 터미널에서는 `무선 LAN 어댑터 Wi-Fi`의 IPv4 주소를 찾아 입력합니다. PC 관제 주소는 `http://127.0.0.1:8766/`입니다. QR은 휴대폰 모드 서버가 시작되면 표시됩니다. 다른 PC에서 시연할 때는 그 PC의 터미널에 표시된 `phone-certs/<PC의 IPv4>/SENSE-test-root.cer`를 전달합니다. `server-key.pem`은 해당 PC에 보관합니다.
 
 **연결이 막힐 때**
 
@@ -181,6 +180,7 @@ SENSE_AI_KEY=
 | 패키지 설치 중 네트워크 오류 | 인터넷·기관 프록시·패키지 다운로드 제한을 확인. 오류가 난 단계의 문구 보존 |
 | 페이지를 찾을 수 없음 | 서버 터미널이 열려 있는지 확인. 로컬 주소는 `http://127.0.0.1:8765` |
 | 포트를 열 수 없음 | 기존 서버를 종료하거나 `.venv\Scripts\python.exe run.py --port 8775 --admin-port 8776 --open-browser` 사용. Mac은 실행파일을 `.venv/bin/python`으로 변경 |
+| PC 관제에 QR이 안 보임 | 관제에 `PC 단독 모드`가 표시되면 기존 SENSE+ 창에서 `Ctrl+C`를 누른 뒤 `start_phone_windows.bat` 또는 `start_phone_mac.command`를 실행. 그 PC의 Wi-Fi IPv4를 입력하고 `http://127.0.0.1:8766/`을 주소창에서 다시 열기 |
 | 카메라 권한이 안 뜸 | 로컬 PC에서는 localhost/127.0.0.1, 휴대폰에서는 신뢰되는 HTTPS인지 확인 |
 | 카메라가 검게 보임 | 다른 프로그램이 카메라를 사용하는지, 브라우저의 사이트별 권한이 거절되었는지 확인 |
 | 영상은 보이는데 서버 수치가 늘지 않음 | 로컬 미리보기와 서버 연결을 구분. `preview.py`가 아닌 `run.py`로 실행했는지 확인 |
