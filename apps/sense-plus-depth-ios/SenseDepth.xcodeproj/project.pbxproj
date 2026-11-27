@@ -1,0 +1,182 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A10000000000000000000001 /* SenseDepthApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001; };
+		A10000000000000000000002 /* DepthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002; };
+		A10000000000000000000003 /* DepthCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003; };
+		A10000000000000000000004 /* ARDepthCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000004; };
+		A10000000000000000000005 /* DualCameraCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005; };
+		A10000000000000000000006 /* DepthEstimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000006; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		A20000000000000000000001 /* SenseDepthApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SenseDepthApp.swift; sourceTree = "<group>"; };
+		A20000000000000000000002 /* DepthView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DepthView.swift; sourceTree = "<group>"; };
+		A20000000000000000000003 /* DepthCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DepthCapture.swift; sourceTree = "<group>"; };
+		A20000000000000000000004 /* ARDepthCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ARDepthCapture.swift; sourceTree = "<group>"; };
+		A20000000000000000000005 /* DualCameraCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DualCameraCapture.swift; sourceTree = "<group>"; };
+		A20000000000000000000006 /* DepthEstimator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DepthEstimator.swift; sourceTree = "<group>"; };
+		A20000000000000000000007 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A20000000000000000000008 /* SenseDepth.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SenseDepth.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A30000000000000000000002 = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = ();
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A40000000000000000000001 = {
+			isa = PBXGroup;
+			children = (A40000000000000000000002, A40000000000000000000003, A40000000000000000000004);
+			sourceTree = "<group>";
+		};
+		A40000000000000000000002 /* SenseDepth */ = {
+			isa = PBXGroup;
+			children = (A20000000000000000000001, A20000000000000000000002, A20000000000000000000003,
+				A20000000000000000000004, A20000000000000000000005, A20000000000000000000007);
+			path = SenseDepth;
+			sourceTree = "<group>";
+		};
+		A40000000000000000000003 /* DepthCore */ = {
+			isa = PBXGroup;
+			children = (A20000000000000000000006);
+			path = DepthCore;
+			sourceTree = "<group>";
+		};
+		A40000000000000000000004 /* Products */ = {
+			isa = PBXGroup;
+			children = (A20000000000000000000008);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A50000000000000000000001 /* SenseDepth */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A70000000000000000000002;
+			buildPhases = (A30000000000000000000001, A30000000000000000000002, A30000000000000000000003);
+			buildRules = ();
+			dependencies = ();
+			name = SenseDepth;
+			productName = SenseDepth;
+			productReference = A20000000000000000000008;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A60000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = { LastUpgradeCheck = 1600; };
+			buildConfigurationList = A70000000000000000000001;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = ko;
+			hasScannedForEncodings = 0;
+			knownRegions = (ko, en, Base);
+			mainGroup = A40000000000000000000001;
+			productRefGroup = A40000000000000000000004;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (A50000000000000000000001);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A30000000000000000000003 = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = ();
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A30000000000000000000001 = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (A10000000000000000000001, A10000000000000000000002, A10000000000000000000003,
+				A10000000000000000000004, A10000000000000000000005, A10000000000000000000006);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		A80000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		A80000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		A80000000000000000000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = SenseDepth/Info.plist;
+				PRODUCT_BUNDLE_IDENTIFIER = org.senseplus.depth;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		A80000000000000000000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = SenseDepth/Info.plist;
+				PRODUCT_BUNDLE_IDENTIFIER = org.senseplus.depth;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A70000000000000000000001 = {
+			isa = XCConfigurationList;
+			buildConfigurations = (A80000000000000000000001, A80000000000000000000002);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A70000000000000000000002 = {
+			isa = XCConfigurationList;
+			buildConfigurations = (A80000000000000000000003, A80000000000000000000004);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = A60000000000000000000001;
+}
