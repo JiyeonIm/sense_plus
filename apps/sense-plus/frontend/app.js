@@ -14,7 +14,7 @@ const state = {
   actionBusy: false, demo: false, scenario: 'door', demoPaused: false,
   health: null, backend: null, result: null, lastResultId: null,
   currentTurn: null, lastAnswer: '', audioRetry: false, error: '',
-  voiceWakeRequested: false, voiceWakeEnabled: false, voiceWakePhase: 'off',
+  voiceWakeRequested: false, voiceWakeEnabled: false, voiceWakePhase: 'off', voiceStartNeedsGesture: false,
 };
 let epoch = 0;
 let speech = null;
@@ -166,8 +166,9 @@ async function resumeRemoteAudio(reportFailure = false) {
 }
 
 function unlockAnswerAudio() {
-  if (preferences.voice) void answerAudio.unlock();
+  const ready = preferences.voice ? answerAudio.unlock() : Promise.resolve(false);
   if (!transport.usesHttpAnswerAudio && $('remoteAudio').paused) void resumeRemoteAudio();
+  return ready;
 }
 
 function replayAnswer() {
@@ -201,6 +202,7 @@ function syncMicrophone() {
 function updateVoiceWake(next) {
   state.voiceWakeEnabled = state.voiceWakeRequested && next?.voice_wake_enabled === true;
   state.voiceWakePhase = state.voiceWakeEnabled ? next.voice_wake_phase : 'off';
+  if (state.voiceWakeEnabled) state.voiceStartNeedsGesture = false;
   syncMicrophone();
 }
 
@@ -229,6 +231,7 @@ function finishVoicePlayback(id) {
 }
 
 function releaseMedia() {
+  state.voiceStartNeedsGesture = false;
   state.media?.getTracks().forEach(track => { track.onended = null; track.stop(); });
   state.media = null;
   $('camera').srcObject = null;
@@ -350,7 +353,8 @@ function render() {
   $('demoControls').hidden = !state.demo;
   document.querySelectorAll('[data-scenario]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.scenario === state.scenario)));
   $('demoToggle').querySelector('span').textContent = state.demo ? '시연 끝내기' : '디자인 시연';
-  $('guideAction').hidden = needsQr || state.videoStale || state.listening || waiting || sceneRunning();
+  $('guideAction').hidden = needsQr || state.videoStale || state.listening || waiting
+    || (sceneRunning() && !(canStartVoice && state.voiceStartNeedsGesture));
   $('guideAction').disabled = $('guideAction').hidden;
   let actionLabel = state.mode === 'scene' ? (state.result?.source === 'ai' ? '다시 확인' : '주변 확인') : mode.action;
   let actionIcon = state.mode === 'scene' ? 'eye' : 'play';
@@ -509,7 +513,12 @@ async function waitForCameraFrame(token) {
   throw new Error('영상이 아직 도착하지 않았어요. 카메라를 확인한 뒤 다시 시도해 주세요.');
 }
 
-async function startVoiceWake(token, {fromQr = false} = {}) {
+async function startVoiceWake(token, {fromQr = false, gestureAudio = null} = {}) {
+  if (!fromQr && state.voiceStartNeedsGesture && !await gestureAudio) {
+    if (token === epoch) setStatus('영상은 확인 중이에요. 소리를 켜려면 음성 안내 시작을 눌러 주세요.');
+    return;
+  }
+  if (token !== epoch) return;
   state.voiceWakeRequested = true;
   try {
     const connected = await ensureConnected(token, {visibleOnly: fromQr});
@@ -528,7 +537,12 @@ async function startVoiceWake(token, {fromQr = false} = {}) {
         return;
       }
       if (!audioReady) {
-        setStatus('PC에 연결됐어요. 시작 음성을 들으려면 음성 안내 시작을 한 번 눌러 주세요.');
+        // Automatic playback can be blocked even though capture and WebRTC work.
+        state.voiceStartNeedsGesture = true;
+        await transport.control('guide.start', 'scene');
+        if (token === epoch) {
+          setStatus('PC에서 영상을 확인하고 있어요. 소리를 켜려면 음성 안내 시작을 한 번 눌러 주세요.');
+        }
         return;
       }
     }
@@ -595,14 +609,14 @@ async function toggleVoiceWake() {
     preferences.voice = true;
     savePreferences(preferences);
   }
-  unlockAnswerAudio();
+  const gestureAudio = unlockAnswerAudio();
   $('settingsDialog').close();
-  await operate(startVoiceWake);
+  await operate(token => startVoiceWake(token, {gestureAudio}));
 }
 
 async function guideAction() {
   suppressAutoVoiceStart();
-  unlockAnswerAudio();
+  const gestureAudio = unlockAnswerAudio();
   if (state.demo) {
     if (state.scenario === 'door') state.demoPaused = !state.demoPaused;
     else { state.scenario = 'door'; state.demoPaused = false; }
@@ -618,7 +632,7 @@ async function guideAction() {
       state.health = health;
     }
     if (voiceWakeAvailable() && preferences.voice && state.mode === 'scene' && !state.voiceWakeEnabled) {
-      await startVoiceWake(token);
+      await startVoiceWake(token, {gestureAudio});
       return;
     }
     if (!await ensureConnected(token)) return;
@@ -781,6 +795,7 @@ async function changeMode(mode) {
   if (state.actionBusy || state.listening || state.questionPending || voiceQuestionActive() || state.demo) return;
   await operate(async token => {
     disarmVoiceWake();
+    state.voiceStartNeedsGesture = false;
     stopSpeech();
     state.guide = 'paused';
     state.result = null;
@@ -812,6 +827,7 @@ function receiveBackend(next) {
     state.listening = false;
     state.questionPending = false;
     disarmVoiceWake();
+    state.voiceStartNeedsGesture = false;
     state.result = null;
     state.lastAnswer = '';
     state.currentTurn = null;
@@ -882,7 +898,7 @@ function receiveBackend(next) {
           try { navigator.vibrate?.([200,100,200]); } catch {}
           setStatus('안내를 일시정지했어요. ' + result.text, false, true);
           speak('잠시 멈춰 주세요. ' + result.text, id);
-        } else if (!preferences.voice) {
+        } else if (!preferences.voice || (state.voiceStartNeedsGesture && result.scene_observation)) {
           setStatus(result.text);
         } else {
           if (result.source === 'startup') setStatus(result.audio_available ? result.text : '시작 음성을 준비하지 못했어요. 화면에서 헤이 센스 사용 방법을 확인해 주세요.');
@@ -910,6 +926,7 @@ transport.addEventListener('status', event => {
   if (['error', 'failed', 'disconnected', 'closed', 'reconnecting'].includes(detail.state)) {
     state.listening = false;
     state.questionPending = false;
+    state.voiceStartNeedsGesture = false;
     if (detail.state === 'reconnecting') updateVoiceWake();
     else disarmVoiceWake();
     if (state.guide === 'active') state.guide = 'paused';
@@ -929,6 +946,7 @@ transport.addEventListener('error', event => {
   state.questionPending = false;
   state.listening = false;
   disarmVoiceWake();
+  state.voiceStartNeedsGesture = false;
   state.result = null;
   state.lastAnswer = '';
   state.currentTurn = null;

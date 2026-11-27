@@ -18,7 +18,7 @@ from senseplus.server import create_app
 
 PAIRING = 'voice-first-test-pairing'
 WAKE = '헤이 센스'
-STARTUP = '센스 플러스가 시작됩니다.'
+STARTUP = '센서 플러스가 실행되었습니다.'
 QUESTION = '빨간 원이 어디에 있나요?'
 REPLY = '화면 왼쪽에 빨간 원이 보입니다.'
 
