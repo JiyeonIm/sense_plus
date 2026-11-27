@@ -39,6 +39,5 @@ def transcribe_audio(audio_base64):
     elapsed = time.perf_counter() - start
 
     print(f"[STT] 응답 시간: {elapsed:.2f}초")
-    print(f"[STT] 사용자 질문: {question}")
 
     return question

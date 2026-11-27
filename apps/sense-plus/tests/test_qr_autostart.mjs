@@ -52,7 +52,8 @@ function cameraStream() {
 }
 
 function app({ hash = `#pair=${QR}`, cachedPairing = '', hidden = false, autoplay = true, gestureAudio = true,
-  permitMedia = async () => {}, voiceWakeAvailable = true, healthDelay = null, audioDelay = null, voice = true } = {}) {
+  permitMedia = async () => {}, voiceWakeAvailable = true, voiceWakeProvider = 'windows-tts',
+  healthDelay = null, audioDelay = null, voice = true } = {}) {
   const log = [];
   const getCalls = name => log.filter(item => item.name === name);
   const elements = new Map();
@@ -92,6 +93,7 @@ function app({ hash = `#pair=${QR}`, cachedPairing = '', hidden = false, autopla
   const health = {
     mode: 'live', rtc_available: true, answer_audio_http: true,
     ai_configured: true, pairing_required: true, voice_wake_available: voiceWakeAvailable,
+    voice_wake_provider: voiceWakeAvailable ? voiceWakeProvider : null,
   };
   const idle = { mode: 'scene', last_video_age_ms: 1, video_frames: 1, ai_configured: true };
   let client;
@@ -206,8 +208,8 @@ function app({ hash = `#pair=${QR}`, cachedPairing = '', hidden = false, autopla
   };
 }
 
-test('fresh QR connects with muted microphone before trying audio, then starts exactly once', async () => {
-  const page = app();
+test('fresh QR with the team voice backend connects with muted microphone and starts exactly once', async () => {
+  const page = app({voiceWakeProvider: 'team-api'});
   await until(() => page.getCalls('answer-audio').length === 1, 'opening audio should load automatically');
   assert.equal(page.location.hash, '');
   assert.deepEqual(page.getCalls('getUserMedia'), [{name: 'getUserMedia', active: false}]);
@@ -219,6 +221,7 @@ test('fresh QR connects with muted microphone before trying audio, then starts e
   assert.deepEqual(page.getCalls('answer-audio'), [{name: 'answer-audio', id: 'startup-1'}]);
   assert.equal(page.element('resultTitle').textContent, STARTUP);
   assert.equal(page.streams[0].mic.enabled, false);
+  assert.match(page.element('voiceWakeNote').textContent, /팀 AI 서버/);
 });
 
 test('autoplay blocked starts visual guidance and lets the same muted session play the opener after a tap', async () => {
@@ -270,7 +273,7 @@ test('absent, invalid and cached-only pairing never trigger automatic camera per
   }
 });
 
-test('a fresh QR respects disabled voice and unavailable local voice service', async () => {
+test('a fresh QR respects disabled voice and unavailable voice service', async () => {
   for (const options of [{voice: false}, {voiceWakeAvailable: false}]) {
     const page = app(options);
     await tick();

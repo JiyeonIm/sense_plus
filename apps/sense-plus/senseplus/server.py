@@ -102,13 +102,15 @@ def create_app(config: Config | None = None, manager: SessionManager | None = No
 
     @app.get("/api/health")
     async def health():
+        voice_wake_available = rtc is not None and await manager.refresh_voice_wake_available()
         return {
             "ok": True,
             "version": __version__,
             "rtc_available": rtc is not None,
             "video_uplink_only": rtc is not None,
             "answer_audio_http": True,
-            "voice_wake_available": rtc is not None and manager.voice_wake_available,
+            "voice_wake_available": voice_wake_available,
+            "voice_wake_provider": manager.voice_audio_provider if voice_wake_available else None,
             "ai_configured": manager.ai_configured,
             "answer_wait_ms": max(30_000, round(config.ai_timeout * 1000) + config.audio_tail_ms + 5_000),
             "mode": "live",

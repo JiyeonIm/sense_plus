@@ -248,6 +248,9 @@ function renderPreferences() {
   $('voiceWakeToggle').setAttribute('aria-checked', String(state.voiceWakeEnabled));
   $('voiceWakeToggle').disabled = state.actionBusy || state.demo || state.listening;
   $('voiceWakeStateText').textContent = state.voiceWakeEnabled ? '켜짐' : '꺼짐';
+  $('voiceWakeNote').textContent = state.health?.voice_wake_provider === 'team-api'
+    ? '켜면 음성 구간을 팀 AI 서버로 보내 호출어와 질문을 인식해요.'
+    : '켜면 마이크 음성을 PC로 보내 호출어와 질문을 인식해요.';
   $('contrastSetting').checked = preferences.contrast;
   document.querySelectorAll('input[name=textSize]').forEach(input => { input.checked = input.value === preferences.textSize; });
   $('voiceSpeed').value = String(preferences.voiceSpeed);
@@ -378,9 +381,18 @@ function render() {
   $('quickConnect').hidden = needsQr || state.demo || !state.videoStale || state.actionBusy;
   $('quickConnect').disabled = $('quickConnect').hidden;
   $('privacyNote').hidden = needsQr || state.demo || (hasSession && !state.voiceWakeEnabled);
-  $('privacyNote').textContent = state.voiceWakeEnabled
-    ? '“헤이 센스”라고 부르면 질문할 수 있어요. 마이크 음성은 PC로 전송돼요.'
-    : canStartVoice ? '시작하면 카메라 영상과 마이크 음성을 PC로 보내요.' : '영상은 PC로, 음성은 질문할 때 전송해요.';
+  const teamVoice = state.health?.voice_wake_provider === 'team-api';
+  let privacyNote = '영상은 PC로, 음성은 질문할 때 전송해요.';
+  if (state.voiceWakeEnabled) {
+    privacyNote = teamVoice
+      ? '“헤이 센스”라고 부르면 질문할 수 있어요. 음성 구간은 팀 AI 서버에서 인식해요.'
+      : '“헤이 센스”라고 부르면 질문할 수 있어요. 마이크 음성은 PC로 전송돼요.';
+  } else if (canStartVoice) {
+    privacyNote = teamVoice
+      ? '카메라와 마이크를 켜면 음성 구간을 팀 AI 서버로 보내 인식해요.'
+      : '시작하면 카메라 영상과 마이크 음성을 PC로 보내요.';
+  }
+  $('privacyNote').textContent = privacyNote;
   $('guideAction').classList.toggle('pause-action', !needsRecheck && (state.guide === 'active' || (state.demo && !state.demoPaused)));
   $('guideAction').classList.toggle('recover-action', needsRecheck);
   $('resultArea').classList.toggle('warning-result', state.videoStale || (state.demo && state.scenario !== 'door') || state.result?.kind === 'obstacle' || state.result?.kind === 'uncertain' || Boolean(state.backend?.last_error && aiConfigured()));
@@ -428,8 +440,11 @@ async function ensureMedia(token = epoch, {visibleOnly = false} = {}) {
   if (isCameraLive()) return state.media;
   if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) throw new Error('카메라·마이크를 사용하려면 HTTPS 주소로 접속해 주세요. 컴퓨터에서는 localhost로 확인할 수 있어요.');
   state.camera = 'requesting';
+  const wakePermission = state.health?.voice_wake_provider === 'team-api'
+    ? '카메라·마이크를 허용해 주세요. 음성 구간을 팀 AI 서버로 보내 인식해요.'
+    : '카메라·마이크를 허용해 주세요. PC에서 “헤이 센스”를 기다려요.';
   setStatus(state.voiceWakeRequested
-    ? '카메라·마이크를 허용해 주세요. PC에서 “헤이 센스”를 기다려요.'
+    ? wakePermission
     : '카메라·마이크를 허용해 주세요. 마이크 입력은 질문을 시작할 때 전송해요.');
   render();
   let stream;

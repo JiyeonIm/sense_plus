@@ -7,9 +7,11 @@ import asyncio
 import binascii
 import io
 import json
+import time
 import wave
 from dataclasses import dataclass
 from typing import Literal, Protocol
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 import numpy as np
@@ -131,42 +133,85 @@ def decode_wav(value: str) -> np.ndarray:
 
 
 class TeamAdapter:
-    def __init__(self, config: Config):
+    voice_audio_provider = "team-api"
+
+    def __init__(self, config: Config, *, transport: httpx.AsyncBaseTransport | None = None):
         self.config = config
+        self.transport = transport
+        self.voice_wake_available = False
+        self._voice_checked_until = 0.0
+        self._voice_check_lock = asyncio.Lock()
+        url = urlsplit(config.ai_url)
+        path = url.path.rstrip("/")
+        self._voice_urls: dict[str, str] = {}
+        if url.scheme in {"http", "https"} and url.hostname and not (url.username or url.password) and path.endswith("/analyze"):
+            prefix = path.removesuffix("/analyze")
+            self._voice_urls = {name: urlunsplit((url.scheme, url.netloc, f"{prefix}/{name}", "", ""))
+                                for name in ("stt", "tts", "health", "openapi.json")}
 
-    async def _post(self, encoded: bytes, headers: dict[str, str]) -> bytearray:
-        async with httpx.AsyncClient(timeout=self.config.ai_timeout, follow_redirects=False) as client:
-            async with client.stream("POST", self.config.ai_url, content=encoded, headers=headers) as response:
-                response.raise_for_status()
-                raw = bytearray()
-                async for chunk in response.aiter_bytes():
-                    raw.extend(chunk)
-                    if len(raw) > MAX_RESPONSE_BYTES:
-                        raise AdapterError("AI 응답이 허용 크기를 초과했습니다.")
-        return raw
+    async def refresh_voice_wake_available(self) -> bool:
+        if not self._voice_urls:
+            return False
+        async with self._voice_check_lock:
+            if time.monotonic() < self._voice_checked_until:
+                return self.voice_wake_available
+            self.voice_wake_available = await self._detect_voice()
+            self._voice_checked_until = time.monotonic() + (30 if self.voice_wake_available else 5)
+            return self.voice_wake_available
 
-    async def analyze(self, payload: dict) -> AnalysisResult:
-        if not self.config.ai_configured:
-            raise AdapterError("AI가 연결되지 않았습니다. 카메라·음성 연결만 시험할 수 있습니다.")
-        encoded = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        if len(encoded) > MAX_REQUEST_BYTES:
+    async def _detect_voice(self) -> bool:
+        try:
+            health = await self._request("GET", self._voice_urls["health"], timeout=2, response_limit=32_000)
+            available = health.get("voice_wake_available")
+            if isinstance(available, bool):
+                return available
+        except AdapterError:
+            pass
+        # Older team builds expose the routes in FastAPI's schema without a health flag.
+        try:
+            schema = await self._request("GET", self._voice_urls["openapi.json"], timeout=2, response_limit=512_000)
+        except AdapterError:
+            return False
+        paths = schema.get("paths")
+        if not isinstance(paths, dict):
+            return False
+        for name in ("stt", "tts"):
+            route = paths.get(urlsplit(self._voice_urls[name]).path, paths.get(f"/{name}"))
+            if not isinstance(route, dict) or "post" not in route:
+                return False
+        return True
+
+    async def _request(
+        self, method: str, url: str, payload: dict | None = None, *,
+        timeout: float | None = None, response_limit: int = MAX_RESPONSE_BYTES,
+    ) -> dict:
+        encoded = json.dumps(payload, ensure_ascii=False).encode("utf-8") if payload is not None else None
+        if encoded is not None and len(encoded) > MAX_REQUEST_BYTES:
             raise AdapterError("질문 데이터가 허용 크기를 초과했습니다. 질문을 짧게 해 주세요.")
-        headers = {"Content-Type": "application/json", "Accept": "application/json"}
+        headers = {"Accept": "application/json"}
+        if encoded is not None:
+            headers["Content-Type"] = "application/json"
         if self.config.ai_key:
             headers["Authorization"] = f"Bearer {self.config.ai_key}"
+        timeout = self.config.ai_timeout if timeout is None else min(self.config.ai_timeout, timeout)
+        options = {"transport": self.transport} if self.transport is not None else {}
         try:
-            # httpx read timeouts are per chunk; wait_for also caps the whole
-            # request when a server keeps dribbling response bytes indefinitely.
-            raw = await asyncio.wait_for(self._post(encoded, headers), timeout=self.config.ai_timeout)
-            parsed = TeamResponse.model_validate_json(raw)
-            if not parsed.text.strip():
-                raise AdapterError("AI 응답 텍스트가 비어 있습니다.")
-            audio = decode_wav(parsed.audio_wav_base64) if parsed.audio_wav_base64 else None
-            return AnalysisResult(parsed.text.strip(), parsed.kind, parsed.direction, audio,
-                                  "team-api" if audio is not None else None)
-        except AdapterError:
-            raise
-        except (httpx.TimeoutException, asyncio.TimeoutError) as exc:
+            # Bound total time as well as each HTTP read.
+            async with asyncio.timeout(timeout), httpx.AsyncClient(
+                timeout=timeout, follow_redirects=False, **options,
+            ) as client:
+                async with client.stream(method, url, content=encoded, headers=headers) as response:
+                    response.raise_for_status()
+                    raw = bytearray()
+                    async for chunk in response.aiter_bytes():
+                        if len(raw) + len(chunk) > response_limit:
+                            raise AdapterError("AI 응답이 허용 크기를 초과했습니다.")
+                        raw.extend(chunk)
+            result = json.loads(raw)
+            if not isinstance(result, dict):
+                raise ValueError("response is not a JSON object")
+            return result
+        except (httpx.TimeoutException, TimeoutError) as exc:
             raise AdapterError("AI 응답 시간이 초과되었습니다. 잠시 뒤 다시 시도해 주세요.") from exc
         except httpx.HTTPStatusError as exc:
             raise AdapterError(f"AI 서버가 요청을 처리하지 못했습니다 (HTTP {exc.response.status_code}).") from exc
@@ -175,9 +220,47 @@ class TeamAdapter:
         except (ValueError, TypeError) as exc:
             raise AdapterError("AI 응답 형식이 연결 규격과 맞지 않습니다.") from exc
 
+    async def transcribe_voice(self, pcm: np.ndarray) -> str:
+        if not self.voice_wake_available:
+            raise AdapterError("팀 AI 서버의 음성 인식을 확인할 수 없습니다.")
+        data = np.asarray(pcm)
+        if data.ndim != 1 or data.dtype != np.int16 or not 0 < data.size <= 320_000:
+            raise AdapterError("질문 음성 형식을 확인할 수 없습니다.")
+        response = await self._request("POST", self._voice_urls["stt"], {
+            "audio_wav_base64": encode_wav(data, 16_000),
+        }, response_limit=32_000)
+        text = response.get("text")
+        if not isinstance(text, str) or not text.strip() or len(text) > 1200:
+            raise AdapterError("질문 음성을 알아듣지 못했습니다.")
+        return text.strip()
+
+    async def synthesize_voice(self, text: str) -> np.ndarray:
+        if not self.voice_wake_available:
+            raise AdapterError("팀 AI 서버의 음성 합성을 확인할 수 없습니다.")
+        response = await self._request("POST", self._voice_urls["tts"], {"text": text})
+        audio = response.get("audio_wav_base64")
+        if not isinstance(audio, str) or not audio:
+            raise AdapterError("팀 AI 서버의 답변 음성이 비어 있습니다.")
+        return decode_wav(audio)
+
+    async def analyze(self, payload: dict) -> AnalysisResult:
+        if not self.config.ai_configured:
+            raise AdapterError("AI가 연결되지 않았습니다. 카메라·음성 연결만 시험할 수 있습니다.")
+        response = await self._request("POST", self.config.ai_url, payload)
+        try:
+            parsed = TeamResponse.model_validate(response)
+        except (ValueError, TypeError) as exc:
+            raise AdapterError("AI 응답 형식이 연결 규격과 맞지 않습니다.") from exc
+        if not parsed.text.strip():
+            raise AdapterError("AI 응답 텍스트가 비어 있습니다.")
+        audio = decode_wav(parsed.audio_wav_base64) if parsed.audio_wav_base64 else None
+        return AnalysisResult(parsed.text.strip(), parsed.kind, parsed.direction, audio,
+                              self.voice_audio_provider if audio is not None else None)
+
 
 class LocalAdapter:
     """Question PCM → Korean transcript → local vision → streamed reply audio."""
+    voice_audio_provider = "windows-tts"
 
     def __init__(self, config: Config):
         from .speech import create_speech_providers

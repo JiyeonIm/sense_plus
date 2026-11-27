@@ -27,6 +27,7 @@
   "rtc_available": true,
   "ai_configured": false,
   "voice_wake_available": false,
+  "voice_wake_provider": null,
   "mode": "live",
   "detail": "서버 상태 설명",
   "rtc_configuration": {"iceServers": []}
@@ -78,7 +79,7 @@ FastRTC SDP 협상 경로입니다. SENSE+에서는 생성한 세션 토큰과 `
 | `question.start` | 안정되고 선명한 최신 프레임을 자동 선택하고 질문 음성 수집 시작 |
 | `question.end` | 지정 질문을 마치고 늦은 음성 수신 구간 후 AI 처리 |
 | `audio.test` | 짧은 서버 확인음을 WebRTC 오디오 트랙으로 전송 |
-| `voice.enable` | 현재 연결에서 로컬 호출어 대기를 켜고 시작음 재생 뒤 주변 확인을 시작 |
+| `voice.enable` | 현재 연결에서 호출어 대기를 켜고 시작음 재생 뒤 주변 확인을 시작 |
 | `voice.disable` | 호출어 대기와 주변 확인을 끄고 작업·음성 버퍼 정리 |
 | `voice.playback.start`, `voice.playback.end` | 최신 응답 재생 시작과 종료를 알림. `turn_id`에 응답 ID 사용 |
 
@@ -122,6 +123,7 @@ FastRTC SDP 협상 경로입니다. SENSE+에서는 생성한 세션 토큰과 `
   "jpeg_base64": "JPEG 이미지의 base64 문자열",
   "image_captured_at": "2026-11-27T00:00:00+00:00",
   "audio_wav_base64": "WAV base64 또는 null",
+  "question_text": null,
   "sample_rate": 16000,
   "audio_truncated": false,
   "requested_at": "2026-11-27T00:00:01+00:00"
@@ -130,12 +132,22 @@ FastRTC SDP 협상 경로입니다. SENSE+에서는 생성한 세션 토큰과 `
 
 - `jpeg_base64`: 최대 640×480 범위로 축소된 JPEG. 원본 비율은 유지합니다.
 - `audio_wav_base64`: 질문이 있으면 모노·16비트 PCM·16kHz WAV. 이미지 기반 자동 안내에서는 `null`일 수 있습니다.
+- `question_text`: 호출어로 시작한 음성 질문의 전사문. 제공되면 분석 서버가 이를 사용하며, 같은 요청의 `audio_wav_base64`는 `null`입니다.
 - `sample_rate`: 질문 오디오 규격입니다. 오디오가 없는 요청에도 규격 값으로 들어갑니다.
 - `image_captured_at`: 현재 구현에서는 **서버에 영상이 수신된 UTC 시각**입니다. 브라우저 카메라 원본의 촬영 시각이 아닙니다.
 - `requested_at`: 요청을 만든 서버 UTC 시각입니다.
 - `turn_id`: 결과를 현재 작업과 연결하기 위한 식별자입니다.
 
 요청은 인메모리로 인코딩하며 이미지·음성을 파일로 저장하지 않습니다. 요청 JSON 크기는 2MB 이하로 제한합니다.
+
+QR 자동 시작과 호출어를 지원하는 팀 서버는 `/analyze`와 같은 주소·경로 접두사로 아래 경로를 제공합니다. SENSE+는 `GET /health`의 `voice_wake_available`을 확인합니다. 해당 필드가 없는 버전에서는 `GET /openapi.json`에 두 POST 경로가 있는지 확인합니다. 설정한 `SENSE_AI_KEY`는 이 요청에도 사용합니다.
+
+| 경로 | 요청 JSON | 응답 JSON |
+|---|---|---|
+| `POST /stt` | `{"audio_wav_base64":"16kHz 모노 PCM WAV의 base64"}` | `{"text":"전사문"}` |
+| `POST /tts` | `{"text":"재생할 시작 멘트"}` | `{"audio_wav_base64":"PCM WAV의 base64"}` |
+
+팀 서버 모드에서는 PC에서 말소리가 감지된 구간을 `/stt`로 보내고, 받은 전사문에서 호출어를 찾습니다. 팀 서버의 STT가 외부 API를 쓰면 호출어를 말하지 않은 음성 구간도 해당 API에 전달될 수 있습니다.
 
 ## 5. 팀 AI 서버의 응답
 
@@ -217,7 +229,7 @@ HTTP 제어 메시지와 WebRTC 미디어는 별도 경로로 도착하므로 30
 
 휴대폰 모드의 로컬 QR은 HTTPS 접속 주소와 해당 서버 실행 중 유효한 페어링 값을 담습니다. 브라우저는 HTTP 요청에 포함되지 않는 URL 조각 `#pair=`에서 값을 읽은 뒤 주소 표시줄에서 제거하고 해당 탭의 세션에 보관합니다. `/api/monitor`는 QR 표시 여부와 갱신 식별자를 제공합니다. 서버가 재시작되면 새 QR을 스캔해야 합니다.
 
-새 QR로 로컬 음성 모드에 접속하면 카메라·마이크를 연결하고, 영상이 도착한 뒤 Web Audio를 준비합니다. 준비되면 `voice.enable`을 호출해 “센서 플러스가 실행되었습니다”를 재생합니다. 자동 재생이 제한되면 `guide.start`로 영상 분석과 화면 안내를 시작합니다. 같은 연결에서 **음성 안내 시작**을 눌러 재생을 허용하면 시작 음성과 호출어 대기가 이어집니다.
+새 QR로 음성 지원 서버에 접속하면 카메라·마이크를 연결하고, 영상이 도착한 뒤 Web Audio를 준비합니다. 준비되면 `voice.enable`을 호출해 “센서 플러스가 실행되었습니다”를 재생합니다. 자동 재생이 제한되면 `guide.start`로 영상 분석과 화면 안내를 시작합니다. 같은 연결에서 **음성 안내 시작**을 눌러 재생을 허용하면 시작 음성과 호출어 대기가 이어집니다.
 
 관제 `/api/monitor`의 `video_size`는 수신 프레임의 해상도이고 `preview_size`는 메모리에서 축소한 영상의 크기입니다. 휴대폰은 카메라에 30fps를 요청하고 `video_fps`는 서버가 디코딩한 영상의 최근 도착 간격으로 계산합니다. 자동 미리보기는 이미지 갱신이 느린 관제용 표시입니다. 수신량은 디코딩된 영상·음성 프레임과 16 kHz로 변환한 샘플 수입니다.
 
@@ -225,9 +237,9 @@ AI 요청이 들어오면 서버가 최대 3초 동안 프레임 간 움직임�
 
 버튼 질문은 프레임을 먼저 고릅니다. 호출어 질문은 인식된 질문에 현재 안정 프레임을 연결합니다. 주변 확인은 답변 음성이 끝나면 재개합니다. 관제의 `last_ai_frame_number`와 `last_ai_frame_received_at`은 마지막 AI 요청에 사용한 영상의 순번과 PC 수신 시각입니다.
 
-### 로컬 호출어 대기
+### 호출어 대기
 
-`voice_wake_available`은 FastRTC와 로컬 STT·TTS가 설정된 경우에 참입니다. `senseplus/wake.py`가 16kHz 모노 PCM에서 길이가 제한된 음성 구간을 만들고, 로컬 Whisper 전사에서 문장 시작의 “헤이 센스”와 이어지는 질문을 찾습니다. 호출어만 있으면 최대 12초 동안 다음 발화를 기다립니다. 질문 텍스트와 안정 JPEG는 로컬 Ollama에 전달되고, 답변은 로컬 TTS로 합성합니다.
+`voice_wake_available`은 FastRTC와 STT·TTS를 사용할 수 있을 때 참입니다. `voice_wake_provider`는 팀 서버에서 `team-api`, Windows 로컬에서 `windows-tts`입니다. `senseplus/wake.py`가 16kHz 모노 PCM에서 음성 구간을 만들고, 전사문 첫머리에서 “헤이 센스”와 이어지는 질문을 찾습니다. 호출어만 있으면 최대 12초 동안 다음 발화를 기다립니다. 질문 텍스트와 안정 JPEG를 설정된 모델에 전달해 답변을 만듭니다.
 
 웹앱은 실제 재생의 시작과 종료를 보고하면서 마이크를 잠시 음소거합니다. 서버는 세션의 최신 응답에 해당하는 통지만 받아들이고, 재생 통지를 받지 못한 경우에도 정해진 시간 뒤 대기를 재개합니다. 종료나 연결 손실 시 작업과 음성 구간을 취소합니다. 호출어 대기 PCM과 전사문은 디스크나 이벤트 로그에 기록하지 않습니다.
 

@@ -51,7 +51,7 @@ depth_executor = ThreadPoolExecutor(max_workers=1)
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "voice_wake_available": True}
 
 
 @app.post("/stt")
@@ -167,8 +167,6 @@ def analyze(payload: dict):
 
         question = f"사용자 음성 질문: {question_text}"
 
-        print(f"[API] Voice question: {question_text}")
-
     elif input_audio_base64:
 
         t = time.perf_counter()
@@ -244,7 +242,7 @@ def analyze(payload: dict):
         else "info"
     )
 
-    print(f"[VLM] ({kind}) {answer}")
+    print(f"[VLM] 응답 유형: {kind}")
 
     # 6. TTS 호출
     output_audio_base64 = None

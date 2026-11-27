@@ -209,12 +209,25 @@ class SessionManager:
         self.config = config
         self.adapter = adapter if adapter is not None else create_adapter(config)
         self.ai_configured = adapter is not None or config.ai_configured
-        self.voice_wake_available = bool(getattr(self.adapter, "voice_wake_available", False))
         self.sessions: dict[str, Session] = {}
         self.close_transport = None
         self.pairing_code: str | None = None
         self.events = deque(maxlen=400)
         self.event_seq = 0
+
+    @property
+    def voice_wake_available(self) -> bool:
+        return bool(getattr(self.adapter, "voice_wake_available", False))
+
+    @property
+    def voice_audio_provider(self) -> str:
+        return getattr(self.adapter, "voice_audio_provider", "windows-tts")
+
+    async def refresh_voice_wake_available(self) -> bool:
+        refresh = getattr(self.adapter, "refresh_voice_wake_available", None)
+        if refresh is not None:
+            return await refresh()
+        return self.voice_wake_available
 
     def event(self, kind: str, session: Session, **fields) -> None:
         # Metadata only. Never accept arbitrary request content or exception text.
@@ -508,12 +521,12 @@ class SessionManager:
     async def _start_voice_guide(self, session: Session, generation: int) -> None:
         session.current_turn_id = uuid.uuid4().hex
         try:
-            audio = await asyncio.wait_for(self.adapter.synthesize_voice(VOICE_STARTUP), timeout=4)
+            audio = await asyncio.wait_for(self.adapter.synthesize_voice(VOICE_STARTUP), timeout=min(10, self.config.ai_timeout))
             if session.closed or generation != session.generation:
                 return
             self._require_recent_video(session)
             self._publish(session, generation, session.current_turn_id,
-                          AnalysisResult(VOICE_STARTUP, "info", "none", audio, "windows-tts"), source="startup")
+                          AnalysisResult(VOICE_STARTUP, "info", "none", audio, self.voice_audio_provider), source="startup")
         except (AdapterError, TimeoutError):
             if not session.closed and generation == session.generation:
                 self._system_result(session, VOICE_STARTUP, "startup")
@@ -829,8 +842,11 @@ class SessionManager:
             return session.public_state(self.ai_configured)
         self.event("control.request", session, action=action, mode=mode, turn_id=turn_id)
         if action == "voice.enable":
-            if not self.voice_wake_available:
-                raise SessionError("로컬 음성 인식과 음성 합성 모델을 먼저 설정해 주세요.", 409)
+            generation = session.generation
+            if not await self.refresh_voice_wake_available():
+                raise SessionError("음성 인식과 음성 합성 서버를 먼저 연결해 주세요.", 409)
+            if session.closed or generation != session.generation:
+                raise SessionError("연결 상태가 바뀌었어요. 다시 시작해 주세요.", 409)
             self._require_recent_video(session)
             if not session.voice_wake_enabled or session.paused:
                 self._invalidate(session)
