@@ -12,7 +12,8 @@ const qrScript = html.match(/<script>([\s\S]*?)<\/script>/)[1];
 const uiScript = uiSource.replace(/^export /gm, '');
 const appScript = appSource.replace(/^import [^\r\n]*\r?\n/gm, '');
 const QR = 'A1B2C3D4E5F6';
-const STARTUP = '센스 플러스가 시작됩니다.';
+const STARTUP = '센서 플러스가 실행되었습니다.';
+const OBSERVATION = '화면 중앙에 의자가 보입니다.';
 const tick = () => new Promise(resolve => setImmediate(resolve));
 
 function deferred() {
@@ -50,8 +51,8 @@ function cameraStream() {
   return { video, mic, getTracks: () => [video, mic], getAudioTracks: () => [mic], getVideoTracks: () => [video] };
 }
 
-function app({ hash = `#pair=${QR}`, cachedPairing = '', hidden = false, autoplay = true,
-  permitMedia = async () => {}, voiceWakeAvailable = true, healthDelay = null, voice = true } = {}) {
+function app({ hash = `#pair=${QR}`, cachedPairing = '', hidden = false, autoplay = true, gestureAudio = true,
+  permitMedia = async () => {}, voiceWakeAvailable = true, healthDelay = null, audioDelay = null, voice = true } = {}) {
   const log = [];
   const getCalls = name => log.filter(item => item.name === name);
   const elements = new Map();
@@ -128,6 +129,11 @@ function app({ hash = `#pair=${QR}`, cachedPairing = '', hidden = false, autopla
     }
     async control(action, mode, resultId) {
       log.push({name: action, mode, resultId, session: this.sessionId});
+      if (action === 'guide.start') {
+        const state = { ...idle, guide_active: true, voice_wake_enabled: false, voice_wake_phase: 'off' };
+        await this.events.emit('state', state);
+        return state;
+      }
       if (action === 'voice.enable') {
         const state = {
           ...idle, guide_active: true, voice_wake_enabled: true, voice_wake_phase: 'playing',
@@ -141,6 +147,15 @@ function app({ hash = `#pair=${QR}`, cachedPairing = '', hidden = false, autopla
       }
       return idle;
     }
+    async showVisualObservation() {
+      await this.events.emit('state', {
+        ...idle, guide_active: true, voice_wake_enabled: false, voice_wake_phase: 'off', current_turn_id: 'scene-1',
+        latest_result: {
+          id: 'observation-1', source: 'ai', mode: 'scene', turn_id: 'scene-1', scene_observation: true,
+          text: OBSERVATION, kind: 'info', audio_available: true, audio_source: 'http-wav',
+        },
+      });
+    }
     async getAnswerAudio(id) {
       log.push({name: 'answer-audio', id});
       return new ArrayBuffer(8);
@@ -151,8 +166,10 @@ function app({ hash = `#pair=${QR}`, cachedPairing = '', hidden = false, autopla
     supported = true;
     active = false;
     async unlock() {
-      log.push({name: 'unlock', active: activation.isActive, connected: client.connected});
-      if (autoplay || activation.isActive) this.active = true;
+      const hasGesture = activation.isActive;
+      log.push({name: 'unlock', active: hasGesture, connected: client.connected});
+      if (audioDelay && !hasGesture) await audioDelay;
+      if (autoplay || (gestureAudio && hasGesture)) this.active = true;
       return this.active;
     }
     async play(load, isAllowed, { onStart }) {
@@ -197,27 +214,51 @@ test('fresh QR connects with muted microphone before trying audio, then starts e
   assert.deepEqual(page.getCalls('connect'), [{name: 'connect', code: QR, mic: false}]);
   assert.ok(page.log.findIndex(item => item.name === 'connect') < page.log.findIndex(item => item.name === 'unlock'));
   assert.equal(page.getCalls('unlock')[0].connected, true);
+  assert.equal(page.getCalls('guide.start').length, 0);
   assert.equal(page.getCalls('voice.enable').length, 1);
   assert.deepEqual(page.getCalls('answer-audio'), [{name: 'answer-audio', id: 'startup-1'}]);
   assert.equal(page.element('resultTitle').textContent, STARTUP);
   assert.equal(page.streams[0].mic.enabled, false);
 });
 
-test('autoplay blocked leaves one live muted session and lets the start button play the opener', async () => {
+test('autoplay blocked starts visual guidance and lets the same muted session play the opener after a tap', async () => {
   const page = app({autoplay: false});
-  await until(() => page.element('guideActionLabel').textContent === '음성 안내 시작'
+  await until(() => page.getCalls('guide.start').length === 1 && page.element('guideActionLabel').textContent === '음성 안내 시작'
     && page.element('guideAction').hidden === false, 'audio gesture fallback should be visible');
   assert.equal(page.client.connected, true);
   assert.equal(page.streams[0].mic.enabled, false);
   assert.equal(page.getCalls('voice.enable').length, 0);
+  assert.equal(page.getCalls('guide.start')[0].mode, 'scene');
+  await page.client.showVisualObservation();
+  await tick();
+  assert.equal(page.element('resultTitle').textContent, OBSERVATION);
+  assert.equal(page.element('guideActionLabel').textContent, '음성 안내 시작');
+  assert.equal(page.getCalls('answer-audio').length, 0);
   await page.tap('guideAction');
   await until(() => page.getCalls('answer-audio').length === 1, 'one tap should play the startup WAV');
   assert.equal(page.getCalls('getUserMedia').length, 1);
   assert.equal(page.getCalls('connect').length, 1);
+  assert.equal(page.getCalls('guide.start').length, 1);
   assert.equal(page.getCalls('voice.enable').length, 1);
   assert.equal(page.getCalls('voice.enable')[0].session, 'session-1');
+  assert.deepEqual(page.getCalls('answer-audio'), [{name: 'answer-audio', id: 'startup-1'}]);
   assert.ok(page.getCalls('unlock').some(attempt => attempt.active === true));
   assert.equal(page.element('resultTitle').textContent, STARTUP);
+});
+
+test('a tap that cannot unlock audio keeps visual guidance and never arms the microphone', async () => {
+  const page = app({autoplay: false, gestureAudio: false});
+  await until(() => page.getCalls('guide.start').length === 1 && page.element('guideAction').hidden === false,
+    'visual guidance should have a visible audio retry');
+  await page.client.showVisualObservation();
+  await page.tap('guideAction');
+  assert.equal(page.getCalls('guide.start').length, 1);
+  assert.equal(page.getCalls('connect').length, 1);
+  assert.equal(page.getCalls('voice.enable').length, 0);
+  assert.equal(page.streams[0].mic.enabled, false);
+  assert.equal(page.element('resultTitle').textContent, OBSERVATION);
+  assert.equal(page.element('guideActionLabel').textContent, '음성 안내 시작');
+  assert.equal(page.element('guideAction').hidden, false);
 });
 
 test('absent, invalid and cached-only pairing never trigger automatic camera permission', async () => {
@@ -298,4 +339,18 @@ test('Stop during permission wait discards late tracks and requires a fresh QR f
   await until(() => page.getCalls('voice.enable').length === 1, 'another QR should start a new attempt');
   assert.equal(page.getCalls('getUserMedia').length, 2);
   assert.equal(page.getCalls('connect').length, 1);
+});
+
+test('Stop during audio unlock prevents late guidance or voice activation', async () => {
+  const audio = deferred();
+  const page = app({autoplay: false, audioDelay: audio.promise});
+  await until(() => page.getCalls('unlock').length === 1, 'audio unlock should be pending');
+  await page.tap('stopAction');
+  audio.resolve();
+  await tick();
+  assert.equal(page.getCalls('guide.start').length, 0);
+  assert.equal(page.getCalls('voice.enable').length, 0);
+  assert.equal(page.client.connected, false);
+  assert.equal(page.streams[0].video.readyState, 'ended');
+  assert.equal(page.streams[0].mic.readyState, 'ended');
 });
