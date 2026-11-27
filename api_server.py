@@ -54,6 +54,37 @@ def health():
     return {"status": "ok"}
 
 
+@app.post("/stt")
+def stt(payload: dict):
+
+    audio_base64 = payload.get("audio_wav_base64")
+
+    if not audio_base64:
+        raise HTTPException(
+            status_code=400,
+            detail="음성 데이터가 없습니다."
+        )
+
+    text = transcribe_audio(audio_base64)
+
+    return {"text": text}
+
+
+@app.post("/tts")
+def tts(payload: dict):
+
+    text = payload.get("text", "").strip()
+
+    if not text:
+        raise HTTPException(
+            status_code=400,
+            detail="텍스트가 없습니다."
+        )
+
+    audio_base64 = generate_speech(text)
+
+    return {"audio_wav_base64": audio_base64}
+
 def analyze_depth(frame):
     start = time.perf_counter()
 
@@ -82,6 +113,7 @@ def analyze(payload: dict):
     mode = payload.get("mode", "scene")
     image_base64 = payload.get("jpeg_base64")
     input_audio_base64 = payload.get("audio_wav_base64")
+    question_text = (payload.get("question_text") or "").strip()
 
     if not image_base64:
         raise HTTPException(
@@ -130,9 +162,14 @@ def analyze(payload: dict):
         f"JPEG {len(jpeg) // 1024}KB"
     )
 
-    # 3. 음성 질문 여부에 따른 분기
-    # 이 과정에서 Depth는 병렬 실행 중
-    if input_audio_base64:
+    # 3. 사용자 질문 처리
+    if question_text:
+
+        question = f"사용자 음성 질문: {question_text}"
+
+        print(f"[API] Voice question: {question_text}")
+
+    elif input_audio_base64:
 
         t = time.perf_counter()
 
@@ -155,6 +192,7 @@ def analyze(payload: dict):
 
         else:
             question = "자동 주변 안내를 수행해 줘."
+
 
     # 4. Depth 결과 수신
     try:

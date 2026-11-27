@@ -112,10 +112,6 @@ AI 시각 보조 어시스턴트 SENSE+입니다.
 - speak에는 실제 음성으로 전달할 한국어 문장만 넣으세요.
 """
 
-print(f"[VLM] Loaded from: {__file__}")
-print("[VLM] Clock direction prompt v2")
-print(SYSTEM_PROMPT)
-
 
 # 모델이 항상 이 형식의 JSON만 내도록 강제 (Structured Outputs)
 RESPONSE_FORMAT = {
