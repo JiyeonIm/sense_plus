@@ -1,8 +1,7 @@
 """Bounded per-session state and explicit question/frame pairing.
 
-The question frame is selected before the microphone is enabled. Audio is
-received on a separate WebRTC transport; a bounded grace period at question.end
-absorbs typical late packets. This is not sample-accurate cross-transport timing.
+Button questions select a frame before enabling the microphone and accept late audio
+at question.end. Voice questions select a fresh frame after recognizing the request.
 """
 
 from __future__ import annotations
@@ -23,6 +22,7 @@ from PIL import Image
 from .adapter import AIAdapter, AdapterError, AnalysisResult, OUTPUT_RATE, create_adapter, encode_jpeg, encode_wav, wav_bytes
 from .capture import CAPTURE_TIMEOUT, FrameStability, StableFrame, scene_changed, scene_thumbnail
 from .config import Config
+from .wake import VoiceActivity, split_wake_phrase
 
 INPUT_RATE = 16000
 MAX_QUESTION_SECONDS = 20
@@ -31,6 +31,10 @@ AUDIO_WAVEFORM_BUCKET_SAMPLES = INPUT_RATE // AUDIO_WAVEFORM_BUCKETS
 AUDIO_LEVEL_FRESH_MS = 1000
 VIDEO_FPS_WINDOW = 1.5
 AI_UNCONNECTED = "AI가 연결되지 않았습니다. 카메라·음성 연결만 시험할 수 있습니다."
+VOICE_STARTUP = "센스 플러스가 시작됩니다."
+VOICE_QUESTION_TIMEOUT = 12.0
+VOICE_PLAYBACK_GRACE = 0.25
+VOICE_PLAYBACK_FETCH_MARGIN = 2.0
 
 
 def utc_now() -> str:
@@ -99,6 +103,15 @@ class Session:
     flush_audio: Any = None
     answer_audio_http: bool = False
     latest_answer_wav: bytes | None = field(default=None, repr=False)
+    voice_wake_enabled: bool = False
+    voice_vad: VoiceActivity = field(default_factory=VoiceActivity, repr=False)
+    voice_task: asyncio.Task | None = field(default=None, repr=False)
+    voice_question_timer: asyncio.Task | None = field(default=None, repr=False)
+    voice_waiting_for_question: bool = False
+    voice_processing: bool = False
+    voice_playback_id: str | None = None
+    voice_playback_seconds: float = 0
+    voice_playback_until: float = 0
     closed: bool = False
 
     def touch(self) -> None:
@@ -148,6 +161,17 @@ class Session:
         if capture is not None and not capture.result.done():
             capture.result.set_result(None)
 
+    def voice_wake_phase(self) -> str:
+        if not self.voice_wake_enabled or self.paused or self.transport != "connected":
+            return "off"
+        if self.voice_playback_until > time.monotonic():
+            return "playing"
+        if self.voice_waiting_for_question or self.recording:
+            return "question"
+        if self.voice_processing or self.draining:
+            return "processing"
+        return "waiting"
+
     def public_state(self, ai_configured: bool) -> dict:
         counters = {"video_frames": self.video_frames, "audio_frames": self.audio_frames, "audio_samples": self.audio_samples}
         return {
@@ -174,6 +198,8 @@ class Session:
             "question_audio_seconds": round(self.question_samples / INPUT_RATE, 2),
             "audio_truncated": self.audio_truncated,
             "ai_configured": ai_configured,
+            "voice_wake_enabled": self.voice_wake_enabled,
+            "voice_wake_phase": self.voice_wake_phase(),
             "frame_policy": "AI 요청 시 안정되고 선명한 최신 영상을 선택합니다. 질문은 영상 선택 뒤 듣기 시작합니다.",
         }
 
@@ -183,6 +209,7 @@ class SessionManager:
         self.config = config
         self.adapter = adapter if adapter is not None else create_adapter(config)
         self.ai_configured = adapter is not None or config.ai_configured
+        self.voice_wake_available = bool(getattr(self.adapter, "voice_wake_available", False))
         self.sessions: dict[str, Session] = {}
         self.close_transport = None
         self.pairing_code: str | None = None
@@ -225,6 +252,7 @@ class SessionManager:
             return
         self.event("session.closed", item)
         item.closed = True
+        item.voice_wake_enabled = False
         item.cancel_pending_capture()
         self._invalidate(item)
         item.transport = "closed"
@@ -265,6 +293,17 @@ class SessionManager:
         session.question_frame_number = None
         session.question_frame_at = None
         session.current_turn_id = None
+        session.voice_vad.reset()
+        for name in ("voice_task", "voice_question_timer"):
+            task = getattr(session, name)
+            if task is not None and task is not asyncio.current_task():
+                task.cancel()
+                setattr(session, name, None)
+        session.voice_waiting_for_question = False
+        session.voice_processing = False
+        session.voice_playback_id = None
+        session.voice_playback_seconds = 0
+        session.voice_playback_until = 0
         self._clear_output_audio(session)
 
     def _clear_output_audio(self, session: Session) -> None:
@@ -366,6 +405,10 @@ class SessionManager:
             if data.size > remaining:
                 session.audio_truncated = True
                 session.last_error = "질문은 20초까지만 전송됩니다. 질문 종료를 눌러 주세요."
+        elif (session.voice_wake_phase() in {"waiting", "question"} and session.voice_task is None
+              and session.latest_video is not None and received_at - session.last_video_at <= self.config.frame_max_age):
+            if (utterance := session.voice_vad.push(data)) is not None:
+                session.voice_task = asyncio.create_task(self._handle_voice_utterance(session, session.generation, utterance))
 
     def _require_recent_video(self, session: Session) -> None:
         if session.latest_video is None:
@@ -389,7 +432,9 @@ class SessionManager:
         }
         self.event("result.system", session, source=source, result_id=session.latest_result["id"], turn_id=session.current_turn_id)
 
-    def _publish(self, session: Session, generation: int, turn_id: str, result: AnalysisResult) -> None:
+    def _publish(
+        self, session: Session, generation: int, turn_id: str, result: AnalysisResult, *, source: str = "ai",
+    ) -> None:
         if session.closed or generation != session.generation:
             return
         session.latest_answer_wav = None
@@ -412,14 +457,20 @@ class SessionManager:
             "direction": result.direction,
             "created_at": utc_now(),
             "mode": session.mode,
-            "source": "ai",
-            "scene_observation": session.mode == "scene" and session.guide_active,
+            "source": source,
+            "scene_observation": source == "ai" and session.mode == "scene" and session.guide_active,
             "audio_available": audio is not None,
             "audio_source": audio_source,
             "audio_provider": "browser-tts" if audio is None else result.audio_provider,
         }
         session.last_error = None
-        self.event("result.ai", session, source="ai", result_id=session.latest_result["id"], turn_id=turn_id, status=result.kind)
+        if session.voice_wake_enabled and audio is not None:
+            session.voice_vad.reset()
+            session.voice_playback_id = session.latest_result["id"]
+            session.voice_playback_seconds = audio.size / OUTPUT_RATE
+            session.voice_playback_until = time.monotonic() + session.voice_playback_seconds + VOICE_PLAYBACK_FETCH_MARGIN
+        self.event("result.ai" if source == "ai" else "result.system", session, source=source,
+                   result_id=session.latest_result["id"], turn_id=turn_id, status=result.kind)
         if audio_source == "webrtc":
             self._queue_audio(session, generation, audio)
 
@@ -453,6 +504,139 @@ class SessionManager:
             "audio_truncated": session.audio_truncated if audio is not None else False,
             "requested_at": utc_now(),
         }
+
+    async def _start_voice_guide(self, session: Session, generation: int) -> None:
+        session.current_turn_id = uuid.uuid4().hex
+        try:
+            audio = await asyncio.wait_for(self.adapter.synthesize_voice(VOICE_STARTUP), timeout=4)
+            if session.closed or generation != session.generation:
+                return
+            self._require_recent_video(session)
+            self._publish(session, generation, session.current_turn_id,
+                          AnalysisResult(VOICE_STARTUP, "info", "none", audio, "windows-tts"), source="startup")
+        except (AdapterError, TimeoutError):
+            if not session.closed and generation == session.generation:
+                self._system_result(session, VOICE_STARTUP, "startup")
+                self.event("voice.audio_unavailable", session, status="startup")
+        except SessionError as exc:
+            self._pause_voice_guide(session, exc.detail)
+            return
+        finally:
+            if generation == session.generation:
+                session.voice_processing = False
+        await self._wait_for_voice_playback(session, generation)
+        if not session.closed and generation == session.generation and session.guide_active:
+            await self._guide_loop(session, generation)
+
+    async def _wait_for_voice_playback(self, session: Session, generation: int) -> None:
+        while not session.closed and generation == session.generation:
+            remaining = session.voice_playback_until - time.monotonic()
+            if remaining <= 0:
+                return
+            await asyncio.sleep(min(.1, remaining))
+
+    def _pause_voice_guide(self, session: Session, message: str) -> None:
+        session.guide_active = False
+        session.voice_wake_enabled = False
+        session.paused = True
+        session.voice_vad.reset()
+        session.last_error = message
+        self._system_result(session, message)
+        self.event("guide.paused", session, status="video_interrupted")
+
+    def _restore_voice_guide(self, session: Session, generation: int) -> None:
+        if session.closed or generation != session.generation or not session.voice_wake_enabled:
+            return
+        try:
+            if session.transport != "connected":
+                raise SessionError("카메라 연결이 끊겨 주변 확인을 멈췄습니다.", 409)
+            self._require_recent_video(session)
+        except SessionError as exc:
+            self._pause_voice_guide(session, exc.detail)
+            return
+        session.guide_active = True
+        session.voice_vad.reset()
+        self.event("voice.guide_resumed", session)
+        session.task = asyncio.create_task(self._guide_loop(session, generation, initial_delay=self.config.guide_interval))
+
+    async def _expire_voice_question(self, session: Session, generation: int) -> None:
+        try:
+            await asyncio.sleep(VOICE_QUESTION_TIMEOUT)
+            if session.closed or generation != session.generation or not session.voice_waiting_for_question:
+                return
+            self._invalidate(session)
+            self._system_result(session, "질문이 들리지 않아 주변 확인을 계속합니다.", "voice-timeout")
+            self._restore_voice_guide(session, session.generation)
+        finally:
+            if session.voice_question_timer is asyncio.current_task():
+                session.voice_question_timer = None
+
+    async def _handle_voice_utterance(self, session: Session, generation: int, utterance: np.ndarray) -> None:
+        try:
+            async with asyncio.timeout(self.config.ai_timeout):
+                transcript = await self.adapter.transcribe_voice(utterance)
+            del utterance
+            if session.closed or generation != session.generation or not session.voice_wake_enabled or session.paused:
+                return
+            question = split_wake_phrase(transcript)
+            if session.voice_waiting_for_question:
+                question = transcript.strip() if question is None else question
+                if not question:
+                    return
+            elif question is not None:
+                self.event("voice.wake_detected", session)
+            else:
+                return
+            del transcript
+
+            # Cancel in-flight scene analysis and its audio before using a new frame for the spoken request.
+            self._invalidate(session)
+            generation = session.generation
+            session.guide_active = False
+            session.latest_result = None
+            session.last_error = None
+            if not question:
+                session.voice_waiting_for_question = True
+                session.voice_question_timer = asyncio.create_task(self._expire_voice_question(session, generation))
+                return
+            await self._answer_voice_question(session, generation, question)
+        except (AdapterError, TimeoutError):
+            # Unrecognized background conversation and noise are discarded.
+            pass
+        finally:
+            if session.voice_task is asyncio.current_task():
+                session.voice_task = None
+
+    async def _answer_voice_question(self, session: Session, generation: int, question: str) -> None:
+        turn_id = session.current_turn_id = uuid.uuid4().hex
+        session.voice_processing = session.busy = True
+        self.event("question.started", session, turn_id=turn_id, source="voice")
+        try:
+            frame = await self.capture_stable_frame(session, generation=generation)
+            payload = self._payload(session, turn_id, encode_jpeg(frame.rgb), frame.received_at)
+            payload["question_text"] = question
+            await self._analyze(session, generation, turn_id, payload, frame.received_monotonic, frame.frame_number)
+        except SessionError as exc:
+            if not session.closed and generation == session.generation:
+                session.last_error = exc.detail
+                self._system_result(session, exc.detail)
+        finally:
+            if generation == session.generation:
+                session.voice_processing = session.busy = False
+        await self._wait_for_voice_playback(session, generation)
+        self._restore_voice_guide(session, generation)
+
+    def _voice_playback_control(self, session: Session, action: str, result_id: str | None) -> None:
+        if not session.voice_wake_enabled or session.paused or not result_id or result_id != (session.latest_result or {}).get("id"):
+            return
+        if action == "voice.playback.start":
+            duration = session.voice_playback_seconds if result_id == session.voice_playback_id else 0
+            session.voice_playback_id = result_id
+            session.voice_playback_until = time.monotonic() + (duration or 20) + VOICE_PLAYBACK_GRACE
+            session.voice_vad.reset()
+        elif result_id == session.voice_playback_id:
+            session.voice_playback_until = time.monotonic() + VOICE_PLAYBACK_GRACE
+            session.voice_vad.reset()
 
     async def _analyze(
         self, session: Session, generation: int, turn_id: str, payload: dict,
@@ -565,6 +749,10 @@ class SessionManager:
             if initial_delay:
                 await self._wait_for_next_scene(session, initial_delay)
             while session.guide_active and not session.closed and generation == session.generation:
+                if session.voice_wake_enabled:
+                    await self._wait_for_voice_playback(session, generation)
+                    if session.closed or generation != session.generation:
+                        return
                 turn_id = uuid.uuid4().hex
                 session.busy = True
                 try:
@@ -605,6 +793,8 @@ class SessionManager:
                 if not once and (session.last_error or (not scene and (session.latest_result or {}).get("kind") in {"obstacle", "uncertain"})):
                     session.guide_active = False
                     session.paused = True
+                    session.voice_wake_enabled = False
+                    session.voice_vad.reset()
                     self.event("guide.paused", session, status="attention_required")
                     return
                 if once or not self.ai_configured:
@@ -620,6 +810,8 @@ class SessionManager:
                 self._system_result(session, exc.detail)
                 session.guide_active = False
                 session.paused = True
+                session.voice_wake_enabled = False
+                session.voice_vad.reset()
                 self.event("guide.paused", session, status="video_interrupted")
         except asyncio.CancelledError:
             raise
@@ -632,8 +824,31 @@ class SessionManager:
 
     async def control(self, session: Session, action: str, mode: str = "guide", turn_id: str | None = None) -> dict:
         session.touch()
+        if action in {"voice.playback.start", "voice.playback.end"}:
+            self._voice_playback_control(session, action, turn_id)
+            return session.public_state(self.ai_configured)
         self.event("control.request", session, action=action, mode=mode, turn_id=turn_id)
-        if action in {"guide.start", "guide.resume"}:
+        if action == "voice.enable":
+            if not self.voice_wake_available:
+                raise SessionError("로컬 음성 인식과 음성 합성 모델을 먼저 설정해 주세요.", 409)
+            self._require_recent_video(session)
+            if not session.voice_wake_enabled or session.paused:
+                self._invalidate(session)
+                session.voice_wake_enabled = True
+                session.mode = "scene"
+                session.guide_active = True
+                session.paused = False
+                session.last_error = None
+                session.latest_result = None
+                session.voice_processing = True
+                session.task = asyncio.create_task(self._start_voice_guide(session, session.generation))
+        elif action == "voice.disable":
+            self._invalidate(session)
+            session.voice_wake_enabled = False
+            session.guide_active = False
+            session.paused = True
+            session.latest_result = None
+        elif action in {"guide.start", "guide.resume"}:
             self._invalidate(session)
             session.mode = mode
             session.guide_active = True
@@ -647,6 +862,7 @@ class SessionManager:
                 session.task = asyncio.create_task(self._guide_loop(session, session.generation))
         elif action in {"guide.pause", "guide.stop"}:
             self._invalidate(session)
+            session.voice_wake_enabled = False
             session.guide_active = False
             session.paused = action == "guide.pause"
         elif action == "question.start":

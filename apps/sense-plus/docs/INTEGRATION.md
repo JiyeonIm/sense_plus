@@ -26,6 +26,7 @@
   "version": "0.2.0",
   "rtc_available": true,
   "ai_configured": false,
+  "voice_wake_available": false,
   "mode": "live",
   "detail": "서버 상태 설명",
   "rtc_configuration": {"iceServers": []}
@@ -77,6 +78,9 @@ FastRTC SDP 협상 경로입니다. SENSE+에서는 생성한 세션 토큰과 `
 | `question.start` | 안정되고 선명한 최신 프레임을 자동 선택하고 질문 음성 수집 시작 |
 | `question.end` | 지정 질문을 마치고 늦은 음성 수신 구간 후 AI 처리 |
 | `audio.test` | 짧은 서버 확인음을 WebRTC 오디오 트랙으로 전송 |
+| `voice.enable` | 현재 연결에서 로컬 호출어 대기를 켜고 시작음 재생 뒤 주변 확인을 시작 |
+| `voice.disable` | 호출어 대기와 주변 확인을 끄고 작업·음성 버퍼 정리 |
+| `voice.playback.start`, `voice.playback.end` | 최신 응답 재생 시작과 종료를 알림. `turn_id`에 응답 ID 사용 |
 
 서버는 `guide`, `scene`, `find`, `read`를 허용합니다. 화면 기본값인 `scene`은 장면이 바뀔 때마다 연속 확인합니다. `guide`는 기존 연속 안내 모드입니다. `find`와 `read`는 한 번 확인합니다. 질문 시작·종료에는 같은 `turn_id`를 사용합니다. `turn_id`는 영문·숫자·밑줄·하이픈으로 이루어진 최대 80자 문자열입니다. 제어 API 응답은 갱신된 세션 상태 객체입니다.
 
@@ -91,6 +95,7 @@ FastRTC SDP 협상 경로입니다. SENSE+에서는 생성한 세션 토큰과 `
 - `question_recording`, `question_draining`, `question_audio_seconds`, `audio_truncated`: 질문 수집 상태.
 - `current_turn_id`, `busy`, `last_error`, `latest_result`: 처리 상태와 결과.
 - `guide_active`, `paused`, `mode`, `scene_waiting_for_video`: 안내 조작과 안정 프레임 대기 상태.
+- `voice_wake_enabled`, `voice_wake_phase`: 호출어 활성 여부와 대기·질문·처리·재생 단계(`off`, `waiting`, `question`, `processing`, `playing`).
 - `generation`: 시작·종료 등으로 세션 작업이 무효화될 때 증가하는 값. 브라우저는 이전 작업에서 도착한 상태를 무시합니다.
 
 카운터는 수신 증거이며 내용 인식의 정확도를 뜻하지 않습니다. 마이크 비활성화 상태에 무음 패킷이 올 수도 있습니다.
@@ -212,17 +217,25 @@ HTTP 제어 메시지와 WebRTC 미디어는 별도 경로로 도착하므로 30
 
 휴대폰 모드의 로컬 QR은 HTTPS 접속 주소와 해당 서버 실행 중 유효한 페어링 값을 담습니다. 브라우저는 HTTP 요청에 포함되지 않는 URL 조각 `#pair=`에서 값을 읽은 뒤 주소 표시줄에서 제거하고 해당 탭의 세션에 보관합니다. `/api/monitor`는 QR 표시 여부와 갱신 식별자를 제공합니다. 서버가 재시작되면 새 QR을 스캔해야 합니다.
 
+새 QR로 로컬 음성 모드에 접속하면 카메라·마이크를 연결하고, 영상이 도착한 뒤 Web Audio를 준비합니다. 준비되면 `voice.enable`을 호출해 “센스 플러스가 시작됩니다”를 재생합니다. 자동 재생이 제한되면 같은 연결에서 **음성 안내 시작** 버튼의 조작을 기다립니다.
+
 관제 `/api/monitor`의 `video_size`는 수신 프레임의 해상도이고 `preview_size`는 메모리에서 축소한 영상의 크기입니다. 휴대폰은 카메라에 30fps를 요청하고 `video_fps`는 서버가 디코딩한 영상의 최근 도착 간격으로 계산합니다. 자동 미리보기는 이미지 갱신이 느린 관제용 표시입니다. 수신량은 디코딩된 영상·음성 프레임과 16 kHz로 변환한 샘플 수입니다.
 
 AI 요청이 들어오면 서버가 최대 3초 동안 프레임 간 움직임과 선명도를 평가합니다. 주변 확인(`scene`)은 한 번 시작하면 바뀐 장면의 프레임만 분석하고, 영상이 들어오지만 흐릴 때는 `scene_waiting_for_video`를 표시하며 다음 안정 프레임을 기다립니다. 영상 연결을 잃으면 주변 확인을 멈춥니다. 물건 찾기와 정보 읽기는 한 번씩 확인합니다.
 
-음성 질문은 화면을 먼저 고른 다음 마이크를 켜며, 선택한 프레임을 그 질문과 함께 사용합니다. 주변 확인 중에 질문하면 답변이 끝난 뒤 주변 확인을 재개합니다. 관제에 표시되는 `last_ai_frame_number`와 `last_ai_frame_received_at`은 마지막 AI 요청에 사용한 영상의 순번과 PC 수신 시각입니다. 프레임과 음성은 메모리에서 처리합니다.
+버튼 질문은 프레임을 먼저 고릅니다. 호출어 질문은 인식된 질문에 현재 안정 프레임을 연결합니다. 주변 확인은 답변 음성이 끝나면 재개합니다. 관제의 `last_ai_frame_number`와 `last_ai_frame_received_at`은 마지막 AI 요청에 사용한 영상의 순번과 PC 수신 시각입니다.
+
+### 로컬 호출어 대기
+
+`voice_wake_available`은 FastRTC와 로컬 STT·TTS가 설정된 경우에 참입니다. `senseplus/wake.py`가 16kHz 모노 PCM에서 길이가 제한된 음성 구간을 만들고, 로컬 Whisper 전사에서 문장 시작의 “헤이 센스”와 이어지는 질문을 찾습니다. 호출어만 있으면 최대 12초 동안 다음 발화를 기다립니다. 질문 텍스트와 안정 JPEG는 로컬 Ollama에 전달되고, 답변은 로컬 TTS로 합성합니다.
+
+웹앱은 실제 재생의 시작과 종료를 보고하면서 마이크를 잠시 음소거합니다. 서버는 세션의 최신 응답에 해당하는 통지만 받아들이고, 재생 통지를 받지 못한 경우에도 정해진 시간 뒤 대기를 재개합니다. 종료나 연결 손실 시 작업과 음성 구간을 취소합니다. 호출어 대기 PCM과 전사문은 디스크나 이벤트 로그에 기록하지 않습니다.
 
 `audio_waveform`은 질문 도중 최근 약 1초의 최대 진폭을 최대 40개 값으로 제공합니다. 질문 종료, 연결 해제, 입력 지연 시 관제에서 파형이 사라집니다. `av_arrival_state`는 수신 대기·질문 음성 대기·입력 지연·수신 도착차 관측을 구분합니다. `av_arrival_gap_ms`는 측정 가능한 경우에만 표시하며 두 미디어 콜백의 서버 도착 시간 차이입니다. 카메라와 마이크의 촬영·녹음 시계 간 동기화는 별도 검증이 필요합니다.
 
 ## Windows 로컬 모델
 
-팀 저장소 `JiyeonIm/sense_plus`의 `7fbc4ae` 커밋에서 Ollama 시험 코드에 쓰인 `qwen3-vl:4b-instruct`를 영상 모델로 사용합니다. 팀 데이터셋과 STT·TTS 파일이 준비되기 전 시험용 음성 구성은 다국어 Whisper small과 Windows `Microsoft Heami Desktop`입니다. 팀 저장소의 OpenAI API 경로는 별도입니다.
+영상에는 PC의 Ollama에 설치된 모델을 사용합니다. 아래 예시는 팀 시험 모델인 `qwen3-vl:4b-instruct`를 사용합니다. 이 PC에 Gemma 4 26B가 설치되어 있으면 `SENSE_OLLAMA_MODEL=sense-plus-26b:latest`처럼 해당 PC의 모델 태그를 지정할 수 있습니다. 로컬 음성 예시는 다국어 Whisper small과 Windows `Microsoft Heami Desktop`입니다.
 
 1. 설치된 Ollama에서 `ollama pull qwen3-vl:4b-instruct`로 모델을 한 번 받습니다. 앱은 `http://127.0.0.1:11434`에서 PC에 설치된 영상 모델만 사용합니다.
 2. 프로젝트 폴더에서 `.venv\Scripts\python.exe -m pip install faster-whisper==1.2.1`로 기존 가상환경에 선택 런타임을 설치합니다. [Systran/faster-whisper-small 모델](https://huggingface.co/Systran/faster-whisper-small)의 CTranslate2 파일을 로컬 폴더에 준비합니다. `model.bin`, `config.json`, `tokenizer.json`, `vocabulary.txt`를 함께 둡니다. 음성 인식은 지정된 폴더에서 파일을 읽습니다.

@@ -167,6 +167,22 @@ test('answer audio is negotiated only with a capable server', async t => {
   assert.deepEqual(sessions, [null, 'http']);
 });
 
+test('voice playback acknowledgement carries the result id without updating the UI from its snapshot', async () => {
+  const client = new SenseTransport();
+  client._pc = {connectionState: 'connected'};
+  client._sessionId = 'voice-session';
+  const id = 'd'.repeat(32);
+  let states = 0;
+  client.addEventListener('state', () => { states++; });
+  client._json = async (path, options) => {
+    assert.equal(path, '/api/sessions/voice-session/control');
+    assert.deepEqual(JSON.parse(options.body), {action: 'voice.playback.end', mode: 'scene', turn_id: id});
+    return {voice_wake_phase: 'waiting'};
+  };
+  await client.control('voice.playback.end', 'scene', id, {emitState: false});
+  assert.equal(states, 0);
+});
+
 test('answer audio fetch carries session auth and drops a reply after disconnect', async t => {
   const client = new SenseTransport();
   client._pc = {connectionState: 'connected', getSenders: () => [], close() {}};

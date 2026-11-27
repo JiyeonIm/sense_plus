@@ -230,14 +230,14 @@ export class SenseTransport extends EventTarget {
     if (generation === this._generation) this._pollTimer = setTimeout(() => this._poll(generation), 800);
   }
 
-  async control(action, mode = 'guide', turnId) {
+  async control(action, mode = 'guide', turnId, { emitState = true } = {}) {
     if (!this.connected || !this._sessionId) throw new Error('먼저 실시간 서버에 연결해 주세요.');
     const generation = this._generation;
     const body = { action, mode };
     if (turnId) body.turn_id = turnId;
     const response = await this._json(`/api/sessions/${encodeURIComponent(this._sessionId)}/control`, { method: 'POST', body: JSON.stringify(body) });
     if (generation !== this._generation) throw new Error('종료된 연결의 응답이에요.');
-    this._emit('state', response.state || response);
+    if (emitState) this._emit('state', response.state || response);
     return response;
   }
 

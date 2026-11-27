@@ -107,6 +107,7 @@ def create_admin(
                 'audio_waveform':[round(peak, 5) for peak in waveform[-AUDIO_WAVEFORM_BUCKETS:]],
                 'av_arrival_state':arrival_state, 'av_arrival_gap_ms':arrival_gap,
                 'recording':s.recording, 'draining':s.draining,'busy':s.busy, 'guide_active':s.guide_active,
+                'voice_wake_phase':s.voice_wake_phase(),
                 'paused':s.paused, 'error':bool(s.last_error), 'turn_id':s.current_turn_id,
                 'result_id':result.get('id'), 'result_source':result.get('source'),
                 'result_kind':result.get('kind'), 'analysis_ms':s.analysis_ms,

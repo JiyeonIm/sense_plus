@@ -176,6 +176,10 @@ class OllamaVision:
                 raise VisionError("PC에 설치된 모델로 확인할 수 없어 영상을 보내지 않았습니다.")
             if not isinstance(capabilities, list) or "vision" not in capabilities:
                 raise VisionError("설정된 Ollama 모델은 영상 입력을 지원하지 않습니다.")
+            # Honor the locally configured context for models that need to fit this PC.
+            parameters = info.get("parameters")
+            context = re.search(r"^num_ctx[ \t]+([0-9]{1,6})[ \t]*$", parameters, re.MULTILINE) if isinstance(parameters, str) else None
+            num_ctx = max(1024, min(4096, int(context.group(1)))) if context else 4096
             prompt = MODE_TASKS[mode] + "\n요청: " + json.dumps(question or None, ensure_ascii=False)
             request = {
                 "model": self.model,
@@ -185,7 +189,7 @@ class OllamaVision:
                 ],
                 "format": VisionResult.model_json_schema(),
                 "stream": False,
-                "options": {"temperature": 0, "num_ctx": 4096, "num_predict": 256},
+                "options": {"temperature": 0, "num_ctx": num_ctx, "num_predict": 256},
             }
             if "thinking" in capabilities:
                 request["think"] = False

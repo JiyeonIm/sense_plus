@@ -187,17 +187,39 @@ class LocalAdapter:
         self.vision = OllamaVision(config.ollama_model, config.ai_timeout)
         self.stt, self.tts = create_speech_providers(config.stt_model_path, config.tts_voice)
 
+    @property
+    def voice_wake_available(self) -> bool:
+        return self.stt is not None and self.tts is not None
+
+    async def transcribe_voice(self, pcm: np.ndarray) -> str:
+        from .speech import SpeechError
+
+        if self.stt is None:
+            raise AdapterError("PC의 음성 인식 모델이 설정되지 않았습니다.")
+        try:
+            return await self.stt.transcribe(pcm)
+        except SpeechError as exc:
+            raise AdapterError(str(exc)) from exc
+
+    async def synthesize_voice(self, text: str) -> np.ndarray:
+        from .speech import SpeechError
+
+        if self.tts is None:
+            raise AdapterError("PC의 음성 합성이 설정되지 않았습니다.")
+        try:
+            return await self.tts.synthesize(text)
+        except SpeechError as exc:
+            raise AdapterError(str(exc)) from exc
+
     async def analyze(self, payload: dict) -> AnalysisResult:
         from .speech import SpeechError
         from .vision import VisionError
 
         try:
             async with asyncio.timeout(self.config.ai_timeout):
-                question = None
+                question = payload.get("question_text")
                 if payload.get("audio_wav_base64"):
-                    if self.stt is None:
-                        raise AdapterError("PC의 음성 인식 모델이 설정되지 않았습니다.")
-                    question = await self.stt.transcribe(read_question_pcm(payload["audio_wav_base64"]))
+                    question = await self.transcribe_voice(read_question_pcm(payload["audio_wav_base64"]))
                 result = await self.vision.analyze(
                     jpeg_base64=payload["jpeg_base64"], mode=payload["mode"], question=question,
                 )
@@ -205,8 +227,8 @@ class LocalAdapter:
                 if self.tts is not None:
                     try:
                         # Keep a valid text result usable even if local audio is unavailable.
-                        audio = await asyncio.wait_for(self.tts.synthesize(result.text), timeout=4)
-                    except (SpeechError, TimeoutError):
+                        audio = await asyncio.wait_for(self.synthesize_voice(result.text), timeout=4)
+                    except (AdapterError, TimeoutError):
                         pass
                 return AnalysisResult(result.text, result.kind, result.direction, audio,
                                       "windows-tts" if audio is not None else None)

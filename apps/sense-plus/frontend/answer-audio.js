@@ -8,6 +8,7 @@ export class AnswerAudio {
     this._unlock = null;
     this._pending = null;
     this._source = null;
+    this._finishSource = null;
   }
 
   get supported() { return Boolean(this._createContext); }
@@ -37,7 +38,7 @@ export class AnswerAudio {
     }
   }
 
-  async play(load, isAllowed = () => true) {
+  async play(load, isAllowed = () => true, playback = {}) {
     this.stop();
     const controller = new AbortController();
     this._pending = controller;
@@ -46,13 +47,13 @@ export class AnswerAudio {
       signal.addEventListener('abort', () => resolve('cancelled'), { once: true });
     });
     try {
-      return await Promise.race([this._play(load, isAllowed, signal), aborted]);
+      return await Promise.race([this._play(load, isAllowed, signal, playback), aborted]);
     } finally {
       if (this._pending === controller) this._pending = null;
     }
   }
 
-  async _play(load, isAllowed, signal) {
+  async _play(load, isAllowed, signal, {onStart, onEnd}) {
     const cancelled = () => signal.aborted || !isAllowed();
     let source;
     try {
@@ -76,17 +77,27 @@ export class AnswerAudio {
       source = context.createBufferSource();
       source.buffer = buffer;
       source.connect(context.destination);
-      source.onended = () => {
-        if (this._source === source) this._source = null;
+      const finish = () => {
+        if (this._source !== source) return;
+        this._source = null;
+        this._finishSource = null;
+        source.onended = null;
         source.disconnect();
+        onEnd?.();
       };
       this._source = source;
+      this._finishSource = finish;
+      source.onended = finish;
       source.start();
+      onStart?.();
       return 'playing';
     } catch {
       if (cancelled()) return 'cancelled';
       if (source) {
-        if (this._source === source) this._source = null;
+        if (this._source === source) {
+          this._source = null;
+          this._finishSource = null;
+        }
         source.onended = null;
         source.disconnect();
       }
@@ -98,11 +109,10 @@ export class AnswerAudio {
     if (this._pending) this._pending.abort();
     this._pending = null;
     const source = this._source;
-    this._source = null;
     if (source) {
       source.onended = null;
       try { source.stop(); } catch { /* It may not have started. */ }
-      source.disconnect();
+      this._finishSource?.();
     }
   }
 
